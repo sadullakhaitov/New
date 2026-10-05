@@ -34,6 +34,9 @@ class FakeBot:
     async def send_location(self, chat_id, lat, lon, **kw):
         self.sent.append(("location", chat_id, (lat, lon)))
 
+    async def edit_message_text(self, text, chat_id=None, message_id=None, **kw):
+        self.sent.append(("edit", chat_id, text))
+
     async def get_file(self, file_id):
         return SimpleNamespace(file_path=f"photos/{file_id}.jpg")
 
@@ -91,7 +94,13 @@ async def test_auth_required(ctx):
     assert (await ctx.client.post("/api/me", headers=old)).status == 401
 
 
+async def verify(db, phone="+998952898555", user_id=777):
+    await db.upsert_user(user_id, "Sardor")
+    await db.set_verified_phone(user_id, phone)
+
+
 async def test_order_flow(ctx):
+    await verify(ctx.db)
     qazi = await product_id(ctx.db, "Qazi xot-dog (katta)")
     lavash = await product_id(ctx.db, "Emir lavash")
     body = {
@@ -122,6 +131,7 @@ async def test_order_flow(ctx):
 
 
 async def test_min_order_and_pickup(ctx):
+    await verify(ctx.db, "+998901234567")
     fri = await product_id(ctx.db, "Fri")
     base = {"lang": "uz", "payment": "cash", "name": "Ali", "phone": "+998901234567",
             "items": [{"id": fri, "qty": 1}]}
@@ -209,3 +219,62 @@ async def test_new_photo_applied_after_old_migration(fresh_db):
     assert await apply_photos(db) == 17  # arab kabob, chizburger, xot-doglar, ichimliklar, longer, klab sendvich, kfc, fri
     assert (await db.product(pid))["img"] == "static/img/photos/arab-kabob2.webp"
     assert await apply_photos(db) == 0
+
+
+def _fri_body(db_fri, **extra):
+    return {"lang": "uz", "kind": "pickup", "payment": "cash", "name": "Ali", "phone": "+998901234567",
+            "items": [{"id": db_fri, "qty": 4}], **extra}
+
+
+async def test_phone_must_be_shared_via_telegram(ctx):
+    fri = await product_id(ctx.db, "Fri")
+    resp = await ctx.client.post("/api/order", json=_fri_body(fri), headers=auth())
+    assert (await resp.json())["error"] == "phone_unverified"
+    # Eski Telegram ilovasi (kontakt ulasha olmaydi) — qabul qilinadi, lekin guruhda belgilanadi
+    resp = await ctx.client.post("/api/order", json=_fri_body(fri, contact_supported=False), headers=auth())
+    assert (await resp.json())["ok"]
+    group_text = next(t for k, c, t in ctx.bot.sent if k == "message" and c == -100500)
+    assert "tasdiqlanmagan" in group_text
+
+
+async def test_delivery_zone(ctx):
+    await verify(ctx.db, "+998901234567")
+    await ctx.db.set_setting("shop_lat", "40.0")
+    await ctx.db.set_setting("shop_lon", "64.4")
+    await ctx.db.set_setting("delivery_radius_km", "3")
+    menu = await (await ctx.client.get("/api/menu")).json()
+    assert menu["shop"]["zone_area"] == {"lat": 40.0, "lon": 64.4, "radius_km": 3.0}
+    fri = await product_id(ctx.db, "Fri")
+    far = _fri_body(fri, kind="delivery", lat=40.1, lon=64.4)  # ~11 km
+    data = await (await ctx.client.post("/api/order", json=far, headers=auth())).json()
+    assert data["error"] == "out_of_zone" and data["distance_km"] > 10
+    near = _fri_body(fri, kind="delivery", lat=40.01, lon=64.4)  # ~1.1 km
+    data = await (await ctx.client.post("/api/order", json=near, headers=auth())).json()
+    assert data["ok"], data
+    group_text = next(t for k, c, t in ctx.bot.sent if k == "message" and c == -100500)
+    assert "1.1 km" in group_text and "Telegram orqali tasdiqlangan" in group_text
+
+
+async def test_customer_cancel(ctx):
+    await verify(ctx.db, "+998901234567")
+    fri = await product_id(ctx.db, "Fri")
+    oid = (await (await ctx.client.post("/api/order", json=_fri_body(fri), headers=auth())).json())["order"]["id"]
+    # Begona foydalanuvchi bekor qila olmaydi
+    other = auth({"id": 888, "first_name": "X"})
+    assert (await ctx.client.post(f"/api/orders/{oid}/cancel", headers=other)).status == 404
+    data = await (await ctx.client.post(f"/api/orders/{oid}/cancel", headers=auth())).json()
+    assert data["ok"] and data["order"]["status"] == "canceled"
+    edits = [t for k, c, t in ctx.bot.sent if k == "edit" and c == -100500]
+    assert edits and "BEKOR QILINDI</b> — Mijoz" in edits[-1]
+    assert any("Mijoz" in t and "bekor qildi" in t for k, c, t in ctx.bot.sent if k == "message" and c == -100500)
+
+
+async def test_customer_cannot_cancel_after_accept(ctx):
+    await verify(ctx.db, "+998901234567")
+    fri = await product_id(ctx.db, "Fri")
+    oid = (await (await ctx.client.post("/api/order", json=_fri_body(fri), headers=auth())).json())["order"]["id"]
+    await ctx.db.set_order_status(oid, "accepted", "Oshpaz")
+    resp = await ctx.client.post(f"/api/orders/{oid}/cancel", headers=auth())
+    data = await resp.json()
+    assert resp.status == 409 and data["error"] == "cannot_cancel" and data["order"]["status"] == "accepted"
+    assert (await ctx.db.order(oid))["status"] == "accepted"

@@ -97,6 +97,17 @@ ORDER_EXTRA_COLUMNS = {
     "status": "TEXT NOT NULL DEFAULT 'new'",
     "status_by": "TEXT NOT NULL DEFAULT ''",
     "status_at": "TEXT NOT NULL DEFAULT ''",
+    # Guruhdagi buyurtma xabari — mijoz bekor qilganda shu xabar yangilanadi
+    "group_chat_id": "BIGINT",
+    "group_message_id": "BIGINT",
+    # Telefon Telegram orqali tasdiqlanganmi (1) yoki qo'lda yozilganmi (0)
+    "phone_verified": "INTEGER NOT NULL DEFAULT 0",
+    # Do'kondan masofa (km), lokatsiya yuborilgan bo'lsa
+    "distance_km": "REAL",
+}
+USER_EXTRA_COLUMNS = {
+    # Telegram "kontaktni ulashish" orqali kelgan, egasi tasdiqlangan raqam
+    "verified_phone": "TEXT NOT NULL DEFAULT ''",
 }
 ORDER_TRANSITIONS = {"accepted": ("new",), "canceled": ("new", "accepted")}
 
@@ -176,10 +187,11 @@ class Database:
 
     async def _migrate(self) -> None:
         """Eski bazaga yangi ustunlarni qo'shadi."""
-        have = await self._columns("orders")
-        for name, ddl in ORDER_EXTRA_COLUMNS.items():
-            if name not in have:
-                await self._execute(f"ALTER TABLE orders ADD COLUMN {name} {ddl}")
+        for table, columns in (("orders", ORDER_EXTRA_COLUMNS), ("users", USER_EXTRA_COLUMNS)):
+            have = await self._columns(table)
+            for name, ddl in columns.items():
+                if name not in have:
+                    await self._execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
     async def close(self) -> None:
         if self._pool is not None:
@@ -328,6 +340,9 @@ class Database:
     async def set_user_lang(self, user_id: int, lang: str) -> None:
         await self._execute("UPDATE users SET lang = ? WHERE id = ?", (lang, user_id))
 
+    async def set_verified_phone(self, user_id: int, phone: str) -> None:
+        await self._execute("UPDATE users SET verified_phone = ?, phone = ? WHERE id = ?", (phone, phone, user_id))
+
     async def set_user_contact(self, user_id: int, name: str, phone: str) -> None:
         await self._execute("UPDATE users SET name = ?, phone = ? WHERE id = ?", (name, phone, user_id))
 
@@ -365,9 +380,14 @@ class Database:
         )
         return [self._order_row(r) for r in rows]
 
-    async def set_order_status(self, order_id: int, status: str, by: str) -> dict[str, Any] | None:
-        """Holatni o'zgartiradi; ruxsat etilmagan o'tish (masalan, ikki marta bosilsa) bo'lsa None."""
-        allowed = ORDER_TRANSITIONS[status]
+    async def set_order_status(
+        self, order_id: int, status: str, by: str, allowed_from: tuple[str, ...] | None = None,
+    ) -> dict[str, Any] | None:
+        """Holatni o'zgartiradi; ruxsat etilmagan o'tish (masalan, ikki marta bosilsa) bo'lsa None.
+
+        allowed_from — qaysi holatlardan o'tish mumkin (mijoz faqat "new" holatdagini bekor qila oladi).
+        """
+        allowed = allowed_from or ORDER_TRANSITIONS[status]
         marks = ", ".join("?" * len(allowed))
         row = await self._fetchone(
             f"UPDATE orders SET status = ?, status_by = ?, status_at = ? "
@@ -377,6 +397,11 @@ class Database:
         if not self.is_pg:
             await self._sqlite.commit()
         return await self.order(order_id) if row else None
+
+    async def set_order_group_message(self, order_id: int, chat_id: int, message_id: int) -> None:
+        await self._execute(
+            "UPDATE orders SET group_chat_id = ?, group_message_id = ? WHERE id = ?", (chat_id, message_id, order_id)
+        )
 
     async def recent_orders(self, limit: int = 10) -> list[dict[str, Any]]:
         rows = await self._fetchall("SELECT * FROM orders ORDER BY id DESC LIMIT ?", (limit,))

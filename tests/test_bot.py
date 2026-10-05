@@ -233,3 +233,55 @@ async def test_banner_admin_flow(env):
     assert (await db.banner(new["id"]))["is_active"] == 1
     await dp.feed_update(bot, cb("lang:ru", CLIENT_ID))
     assert (await db.user(CLIENT_ID))["lang"] == "ru"
+
+
+def contact_msg(user_id: int, owner_id: int, phone: str) -> Update:
+    from aiogram.types import Contact
+
+    m = Message(message_id=next(_uid), date=datetime.now(), chat=Chat(id=user_id, type="private"),
+                from_user=User(id=user_id, is_bot=False, first_name="Ali"),
+                contact=Contact(phone_number=phone, first_name="Ali", user_id=owner_id))
+    return Update(update_id=next(_uid), message=m)
+
+
+async def test_shared_contact_is_saved_as_verified_phone(env):
+    bot, dp, db, session = env
+    await dp.feed_update(bot, contact_msg(CLIENT_ID, CLIENT_ID, "998901112233"))
+    assert (await db.user(CLIENT_ID))["verified_phone"] == "+998901112233"
+    # Boshqa odamning kontakti hisobga olinmaydi
+    await dp.feed_update(bot, contact_msg(CLIENT_ID, 12345, "998909999999"))
+    assert (await db.user(CLIENT_ID))["verified_phone"] == "+998901112233"
+
+
+async def test_customer_cancel_from_bot(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    oid = await _new_order(db)
+    await dp.feed_update(bot, msg("📦 Мои заказы", CLIENT_ID))
+    from aiogram.methods import SendMessage
+    last = next(c for c in reversed(session.calls) if isinstance(c, SendMessage) and c.chat_id == CLIENT_ID)
+    assert last.reply_markup.inline_keyboard[0][0].callback_data == f"c:can:{oid}"
+    await dp.feed_update(bot, cb(f"c:yes:{oid}", CLIENT_ID))
+    assert (await db.order(oid))["status"] == "canceled"
+    # Qabul qilingan buyurtmani bekor qilib bo'lmaydi
+    oid2 = await _new_order(db)
+    await db.set_order_status(oid2, "accepted", "Oshpaz")
+    await dp.feed_update(bot, cb(f"c:yes:{oid2}", CLIENT_ID))
+    assert (await db.order(oid2))["status"] == "accepted"
+
+
+async def test_admin_delivery_zone(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    from aiogram.types import Location
+    await dp.feed_update(bot, cb("a:zone:loc", ADMIN_ID))
+    m = Message(message_id=next(_uid), date=datetime.now(), chat=Chat(id=ADMIN_ID, type="private"),
+                from_user=User(id=ADMIN_ID, is_bot=False, first_name="A"),
+                location=Location(latitude=40.123456, longitude=64.654321))
+    await dp.feed_update(bot, Update(update_id=next(_uid), message=m))
+    await dp.feed_update(bot, cb("a:zone:r", ADMIN_ID))
+    await dp.feed_update(bot, msg("2,5", ADMIN_ID))
+    s = await db.all_settings()
+    assert (s["shop_lat"], s["shop_lon"], s["delivery_radius_km"]) == ("40.123456", "64.654321", "2.5")
+    await dp.feed_update(bot, cb("a:zone:off", ADMIN_ID))
+    assert await db.get_setting("delivery_radius_km") == ""

@@ -37,14 +37,20 @@ def group_order_text(order: dict[str, Any], username: str = "") -> str:
         f"🆕 <b>Yangi buyurtma №{order['id']}</b>  ·  {created}",
         "",
         f"👤 {who}",
-        f"📞 {escape(order['phone'])}",
+        f"📞 {escape(order['phone'])}" + (
+            " ✅ <i>Telegram orqali tasdiqlangan</i>" if order.get("phone_verified")
+            else " ⚠️ <i>qo'lda yozilgan, tasdiqlanmagan</i>"
+        ),
     ]
     if order["kind"] == "delivery":
         parts.append("🚚 <b>Yetkazib berish</b>")
         if order.get("address"):
             parts.append(f"📍 {escape(order['address'])}")
         if order.get("lat") is not None:
-            parts.append("🗺 Lokatsiya pastda 👇")
+            dist = order.get("distance_km")
+            parts.append("🗺 Lokatsiya pastda 👇" + (f"  ·  📏 {dist:.1f} km" if dist is not None else ""))
+        else:
+            parts.append("⚠️ Lokatsiya yuborilmagan — manzil hudud ichidaligini tekshiring")
     else:
         parts.append("🏃 <b>Olib ketadi</b>")
     parts.append("💵 Naqd" if order["payment"] == "cash" else "💳 Kartaga o'tkazma (chekni kuting)")

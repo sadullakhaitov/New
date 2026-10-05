@@ -11,14 +11,16 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
-    BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message,
+    BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message,
+    ReplyKeyboardMarkup,
 )
 
 from .. import access
 from ..config import TASHKENT_TZ, Config
-from ..core import CLOSED_FOREVER, format_sum, parse_close_until, parse_price, shop_status
+from ..core import CLOSED_FOREVER, delivery_zone, format_sum, norm_lang, parse_close_until, parse_price, shop_status
 from ..db import Database
 from ..translit import latin_to_cyrillic
+from .user import main_keyboard
 
 log = logging.getLogger(__name__)
 router = Router(name="admin")
@@ -29,6 +31,7 @@ BACK_MAIN = "a:main"
 class Input(StatesGroup):
     value = State()   # matn kutilmoqda (narx, nom, karta, ...)
     photo = State()   # taom rasmi kutilmoqda
+    location = State()  # do'kon joylashuvi kutilmoqda
 
 
 class AddProduct(StatesGroup):
@@ -112,7 +115,8 @@ async def main_panel(db: Database) -> tuple[str, InlineKeyboardMarkup]:
         [("🍔 Menyu va narxlar", "a:menu"), ("➕ Taom qo'shish", "a:add")],
         [("🔒 Do'kon holati", "a:shop"), ("💳 Karta", "a:card")],
         [("📦 Buyurtmalar", "a:orders"), ("🖼 Bannerlar", "b:list")],
-        [("💰 Minimal summa", "a:min"), ("💾 Zaxira nusxa", "a:backup")],
+        [("📍 Yetkazish hududi", "a:zone"), ("💰 Minimal summa", "a:min")],
+        [("💾 Zaxira nusxa", "a:backup")],
     )
     return text, markup
 
@@ -286,6 +290,8 @@ PROMPTS = {
     "card": "💳 Yangi karta raqamini yozing (16 xonali).",
     "owner": "👤 Karta egasining ism-familiyasini yozing.\n<code>-</code> — ko'rsatmaslik.",
     "min": "💰 Yetkazib berish uchun minimal summani yozing (so'mda).\n<code>0</code> — cheklov yo'q.",
+    "radius": "📏 Yetkazish radiusini kilometrda yozing (do'kondan to'g'ri chiziq bo'yicha).\n"
+              "Masalan: <code>3</code> yoki <code>2.5</code>",
     "close": "🕐 Qachongacha yopiq bo'lishini yozing.\nMasalan: <code>10:00</code>, "
              "<code>07.10 09:00</code> yoki <code>07.10.2026 09:00</code>",
 }
@@ -336,6 +342,11 @@ async def on_value(message: Message, state: FSMContext, db: Database, cfg: Confi
             await db.set_setting("card_owner", "" if text == "-" else text[:60])
         elif action == "min":
             await db.set_setting("min_order", str(parse_price(text) or 0))
+        elif action == "radius":
+            radius = float(text.replace(",", ".").replace("km", "").strip())
+            if not 0.3 <= radius <= 50:
+                raise ValueError("radius")
+            await db.set_setting("delivery_radius_km", f"{radius:g}")
         elif action == "close":
             until = parse_close_until(text)
             if until is None:
@@ -349,6 +360,10 @@ async def on_value(message: Message, state: FSMContext, db: Database, cfg: Confi
         return
 
     await state.clear()
+    if action == "radius":
+        text_, markup = await zone_view(db)
+        await message.answer("✅ Saqlandi.\n\n" + text_, reply_markup=markup)
+        return
     if pid is not None:
         view = await product_view(db, pid)
         if view:
@@ -489,6 +504,90 @@ async def cb_close(call: CallbackQuery, db: Database, state: FSMContext) -> None
 async def cb_open(call: CallbackQuery, db: Database) -> None:
     await db.set_setting("closed_until", "")
     await cb_shop(call, db)
+
+
+# ---------- yetkazish hududi ----------
+async def zone_view(db: Database) -> tuple[str, InlineKeyboardMarkup]:
+    s = await db.all_settings()
+    zone = delivery_zone(s)
+    has_loc = bool(s.get("shop_lat") and s.get("shop_lon"))
+    radius = s.get("delivery_radius_km") or ""
+    if zone:
+        state = f"🟢 Yoqilgan: do'kondan <b>{zone.radius_km:g} km</b> gacha yetkaziladi."
+    else:
+        state = "⚪ O'chiq: manzil tekshirilmaydi."
+    text = (
+        "📍 <b>Yetkazish hududi</b>\n\n" + state + "\n"
+        f"Do'kon joylashuvi: {'✅ kiritilgan' if has_loc else '— kiritilmagan'}\n"
+        f"Radius: {radius + ' km' if radius else '— kiritilmagan'}\n\n"
+        "Mijoz lokatsiya yuborsa va u radiusdan uzoq bo'lsa, yetkazib berish buyurtmasi qabul qilinmaydi "
+        "(olib ketishni tanlashi mumkin). Lokatsiyasiz buyurtmalar guruhda ⚠️ bilan belgilanadi."
+    )
+    rows = [[("📍 Do'kon joylashuvi", "a:zone:loc"), ("📏 Radius", "a:zone:r")]]
+    if has_loc or radius:
+        rows.append([("🚫 Tekshiruvni o'chirish", "a:zone:off")])
+    rows.append([("⬅️ Orqaga", BACK_MAIN)])
+    return text, kb(*rows)
+
+
+@admin_calls.callback_query(F.data == "a:zone")
+async def cb_zone(call: CallbackQuery, db: Database, state: FSMContext) -> None:
+    await state.clear()
+    await _edit(call, *await zone_view(db))
+    await call.answer()
+
+
+@admin_calls.callback_query(F.data == "a:zone:r")
+async def cb_zone_radius(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Input.value)
+    await state.update_data(action="radius", pid=None)
+    await call.message.answer(PROMPTS["radius"], reply_markup=CANCEL_KB)
+    await call.answer()
+
+
+@admin_calls.callback_query(F.data == "a:zone:off")
+async def cb_zone_off(call: CallbackQuery, db: Database) -> None:
+    for key in ("shop_lat", "shop_lon", "delivery_radius_km"):
+        await db.set_setting(key, "")
+    await _edit(call, *await zone_view(db))
+    await call.answer("Tekshiruv o'chirildi")
+
+
+@admin_calls.callback_query(F.data == "a:zone:loc")
+async def cb_zone_location(call: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(Input.location)
+    await call.message.answer(
+        "📍 Do'kon turgan joyda turib pastdagi tugmani bosing yoki 📎 → <b>Lokatsiya</b> orqali do'kon joyini yuboring.",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="📍 Joylashuvni yuborish", request_location=True)],
+                      [KeyboardButton(text="❌ Bekor qilish")]],
+            resize_keyboard=True, one_time_keyboard=True,
+        ),
+    )
+    await call.answer()
+
+
+@router.message(Input.location, F.location)
+async def on_shop_location(message: Message, state: FSMContext, db: Database, cfg: Config, bot: Bot) -> None:
+    if not await _guard_message(message, db, cfg, bot):
+        await state.clear()
+        return
+    await state.clear()
+    await db.set_setting("shop_lat", f"{message.location.latitude:.6f}")
+    await db.set_setting("shop_lon", f"{message.location.longitude:.6f}")
+    user = await db.user(message.from_user.id)
+    await message.answer("✅ Do'kon joylashuvi saqlandi.", reply_markup=main_keyboard(norm_lang(user and user["lang"])))
+    text, markup = await zone_view(db)
+    if not await db.get_setting("delivery_radius_km"):
+        text += "\n\n👉 Endi «📏 Radius» ni bosib, necha km gacha yetkazishni kiriting."
+    await message.answer(text, reply_markup=markup)
+
+
+@router.message(Input.location)
+async def on_not_location(message: Message, state: FSMContext, db: Database) -> None:
+    await state.clear()
+    user = await db.user(message.from_user.id)
+    await message.answer("Bekor qilindi.", reply_markup=main_keyboard(norm_lang(user and user["lang"])))
 
 
 # ---------- buyurtmalar ----------

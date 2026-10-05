@@ -100,6 +100,11 @@ GitHub'dagi branchga yangi kod push qilinsa, Render uni o'zi qayta o'rnatadi. Ma
 3. Guruhda (guruh admini sifatida) `/setgroup` deb yozing. Shundan keyin barcha buyurtmalar shu guruhga keladi.
 4. Guruh adminlari botga **shaxsiy chatda** `/admin` deb yozib, admin panelni ochadi.
 
+**Buyurtma qoidalari:**
+- Telefon raqam Mini App'dagi «Raqamni Telegram orqali yuborish» tugmasi bilan olinadi — raqam haqiqiy bo'ladi. Juda eski Telegram ilovalarida qo'lda yoziladi va guruhda ⚠️ «tasdiqlanmagan» deb belgilanadi.
+- Yetkazish hududi: `/admin` → 📍 Yetkazish hududi → do'kon joylashuvini yuboring va radiusni (km) kiriting. Shundan keyin radiusdan uzoq lokatsiyaga yetkazish qabul qilinmaydi. Lokatsiyasiz buyurtmalar guruhda ⚠️ bilan keladi.
+- Mijoz buyurtmani faqat xodimlar «Qabul qilish» ni bosmaguncha bekor qila oladi (Mini App yoki botdagi «Buyurtmalarim»). Bekor qilinsa, guruhdagi xabar yangilanadi.
+
 Agar biror odam guruh admini bo'lmasa ham panelga kirishi kerak bo'lsa, uning Telegram ID raqamini `.env` dagi `SUPERADMIN_IDS` ga yozing.
 
 ## 4. Font Awesome

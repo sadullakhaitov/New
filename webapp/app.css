@@ -300,6 +300,18 @@ textarea.input { height: auto; min-height: 76px; padding: 14px 16px; resize: non
 .status.st-new { background: var(--surface-2); color: var(--muted); }
 .status.st-accepted { background: var(--ok-bg); color: var(--green); }
 .status.st-canceled { background: var(--bad-bg); color: var(--bad); }
+.order-btns { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.repeat-btn.cancel { border-color: var(--bad); color: var(--bad); background: transparent; }
+.phone-box { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 6px 8px 6px 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+.phone-box > i { font-size: 18px; color: var(--muted); }
+.phone-box span { flex: 1; display: flex; flex-direction: column; gap: 2px; font-weight: 700; }
+.phone-box b { font-size: 16px; font-weight: 800; }
+.phone-box small { font-size: 12px; color: var(--green); font-weight: 700; }
+.phone-box.verified { border-color: var(--green); }
+.phone-box.verified > i { color: var(--green); }
+.loc-btn.invalid { border-color: var(--bad); color: var(--bad); }
+.hint.bad { color: var(--bad); font-weight: 700; }
+.hint.good { color: var(--green); font-weight: 700; }
 .repeat-btn { height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); font-weight: 800; font-size: 12px; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .h2 { margin: 4px 0 0; font-size: 22px; }
 

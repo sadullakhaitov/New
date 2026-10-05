@@ -69,6 +69,8 @@
     orders: null,
     sending: false,
     closedShown: false,
+    verifiedPhone: '',
+    phoneWaiting: false,
     banners: [],
     bannerIndex: 0,
     theme: initialTheme(),
@@ -116,7 +118,8 @@
     const data = await api('api/me', { method: 'POST', body: {} });
     if (data.ok) {
       state.form.name = state.form.name || data.user.name || '';
-      state.form.phone = state.form.phone || data.user.phone || '';
+      state.verifiedPhone = data.user.verified_phone || '';
+      state.form.phone = state.verifiedPhone || state.form.phone || data.user.phone || '';
       if (!new URLSearchParams(location.search).get('lang') && !store.get('ef_lang', null) && LANGS.includes(data.user.lang)) {
         state.lang = data.user.lang;
       }
@@ -392,9 +395,7 @@
     html += kindSwitch();
     html += '<div class="stack"><label class="field">' + T('your_name') +
       '<input class="input' + (er.name ? ' invalid' : '') + '" id="f-name" data-field="name" autocomplete="name" maxlength="64" value="' + esc(f.name) + '" placeholder="' + T('name_ph') + '"></label>' +
-      '<label class="field" for="f-phone">' + T('phone') + '</label><div class="field-row">' +
-      '<input class="input' + (er.phone ? ' invalid' : '') + '" id="f-phone" data-field="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" value="' + esc(f.phone) + '" placeholder="+998 __ ___ __ __">' +
-      (canRequestContact() ? '<button class="ghost-btn" data-action="contact">' + icon('paper-plane') + ' Telegram</button>' : '') + '</div></div>';
+      phoneField(er) + '</div>';
 
     if (state.kind === 'delivery') {
       const hasLoc = f.lat != null;
@@ -402,7 +403,7 @@
         '<button class="loc-btn' + (hasLoc ? ' done' : '') + '" data-action="location">' +
         icon(hasLoc ? 'circle-check' : 'location-crosshairs') + ' ' + T(hasLoc ? 'location_ok' : 'send_location') + '</button>' +
         '<textarea class="input' + (er.address ? ' invalid' : '') + '" rows="2" data-field="address" maxlength="300" aria-label="' + T('address_title') + '" placeholder="' + T('address_ph') + '">' + esc(f.address) + '</textarea>' +
-        '<span class="hint">' + icon('circle-info') + ' ' + esc(state.shop.zone) + ' · ' + T('free') + '</span></div>';
+        zoneHint() + '</div>';
     } else {
       html += '<div class="pickup-card"><div class="ico">' + icon('store') + '</div><div><b>Emir Food</b><span>' + esc(state.shop.address) + '</span></div></div>';
     }
@@ -414,11 +415,52 @@
     html += '<div class="summary"><div class="row"><span>' + T('items_n', { n: cartCount() }) + '</span><b>' + money(total) + '</b></div>' +
       minInfo(total) + '</div>';
 
-    const ok = minMet(total) && state.shop.open && total > 0;
+    const ok = minMet(total) && state.shop.open && total > 0 && !outOfZone();
     html += '<div class="bottom-bar"><button class="cta split" data-action="submit"' + (ok && !state.sending ? '' : ' disabled') + '><span>' +
       (state.sending ? icon('spinner', 'spin') + ' ' + T('sending') : T('place_order')) + '</span><span>' + money(total) + '</span></button></div>';
     return html;
   }
+
+  // Telefon: Telegram'ning "kontaktni ulashish" oynasi orqali — shunda raqam haqiqiy bo'ladi.
+  function zoneHint() {
+    const z = zoneDistance();
+    if (z && z.dist > z.radius) {
+      return '<span class="hint bad">' + icon('triangle-exclamation') + ' ' +
+        T('err_out_of_zone', { dist: z.dist.toFixed(1), radius: z.radius }) + '</span>';
+    }
+    if (z) return '<span class="hint good">' + icon('circle-check') + ' ' + T('zone_ok', { dist: z.dist.toFixed(1) }) + '</span>';
+    return '<span class="hint">' + icon('circle-info') + ' ' + esc(state.shop.zone) + ' · ' + T('free') + '</span>';
+  }
+
+  function phoneField(er) {
+    const label = '<span class="label">' + T('phone') + '</span>';
+    if (!canRequestContact()) {
+      return '<label class="field" for="f-phone">' + T('phone') + '</label>' +
+        '<input class="input' + (er.phone ? ' invalid' : '') + '" id="f-phone" data-field="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" value="' + esc(state.form.phone) + '" placeholder="+998 __ ___ __ __">';
+    }
+    if (state.phoneWaiting) {
+      return label + '<div class="phone-box">' + icon('spinner', 'spin') + '<span>' + T('waiting_phone') + '</span></div>';
+    }
+    if (state.verifiedPhone) {
+      return label + '<div class="phone-box verified">' + icon('circle-check') + '<span><b>' + esc(state.verifiedPhone) + '</b><small>' +
+        T('phone_verified') + '</small></span><button class="text-btn" data-action="contact">' + T('change') + '</button></div>';
+    }
+    return label + '<button class="loc-btn' + (er.phone ? ' invalid' : '') + '" data-action="contact">' + icon('paper-plane') + ' ' + T('share_phone') + '</button>' +
+      '<span class="hint">' + T('share_phone_hint') + '</span>';
+  }
+
+  function zoneDistance() {
+    const z = state.shop && state.shop.zone_area;
+    const f = state.form;
+    if (!z || f.lat == null) return null;
+    const rad = (d) => d * Math.PI / 180;
+    const a = Math.sin(rad(f.lat - z.lat) / 2) ** 2 + Math.cos(rad(z.lat)) * Math.cos(rad(f.lat)) * Math.sin(rad(f.lon - z.lon) / 2) ** 2;
+    return { dist: 2 * 6371 * Math.asin(Math.sqrt(a)), radius: z.radius_km };
+  }
+  const outOfZone = () => {
+    const z = zoneDistance();
+    return state.kind === 'delivery' && !!z && z.dist > z.radius;
+  };
 
   function payBtn(id, ico, title, sub) {
     return '<button class="pay" data-action="pay" data-pay="' + id + '" aria-pressed="' + (state.payment === id) + '"><span class="dot"></span>' +
@@ -441,7 +483,9 @@
       '<div class="order"><div class="info"><div class="top-line"><b>№ ' + o.id + '</b><small>' + orderDate(o.created_at) + '</small>' +
       '<span class="status st-' + esc(o.status || 'new') + '">' + T('st_' + (o.status || 'new')) + '</span></div>' +
       '<span>' + esc(orderItems(o)) + '</span><em>' + money(o.total) + '</em></div>' +
-      '<button class="repeat-btn" data-action="repeat" data-id="' + o.id + '">' + icon('rotate-right') + ' ' + T('repeat') + '</button></div>'
+      '<div class="order-btns">' +
+      ((o.status || 'new') === 'new' ? '<button class="repeat-btn cancel" data-action="cancel-order" data-id="' + o.id + '">' + icon('xmark') + ' ' + T('cancel_order') + '</button>' : '') +
+      '<button class="repeat-btn" data-action="repeat" data-id="' + o.id + '">' + icon('rotate-right') + ' ' + T('repeat') + '</button></div></div>'
     ).join('') + '</div>';
   }
 
@@ -639,17 +683,31 @@
   }
 
   function requestContact() {
-    tg.requestContact((ok, res) => {
-      const phone = ok && res && res.responseUnsafe && res.responseUnsafe.contact && res.responseUnsafe.contact.phone_number;
-      if (phone) {
-        state.form.phone = phone.startsWith('+') ? phone : '+' + phone;
-        state.errors.phone = false;
-        render();
-        haptic('ok');
-      } else if (ok) {
-        toast(T('contact_sent'));
-      }
+    tg.requestContact((ok) => {
+      if (!ok) { toast(T('err_phone_share'), true); return; }
+      // Raqam botga kontakt sifatida keladi; server uni saqlaguncha kutamiz.
+      state.phoneWaiting = true;
+      render();
+      waitVerifiedPhone(0);
     });
+  }
+
+  async function waitVerifiedPhone(attempt) {
+    const data = await api('api/me', { method: 'POST', body: {} });
+    const phone = data.ok && data.user.verified_phone;
+    if (phone && (phone !== state.verifiedPhone || attempt >= 3)) {
+      state.verifiedPhone = phone;
+      state.form.phone = phone;
+      state.phoneWaiting = false;
+      state.errors.phone = false;
+      haptic('ok');
+      render();
+      return;
+    }
+    if (attempt < 14) { setTimeout(() => waitVerifiedPhone(attempt + 1), 700); return; }
+    state.phoneWaiting = false;
+    render();
+    toast(T('err_phone_wait'), true);
   }
 
   function setLocation(lat, lon) {
@@ -709,7 +767,9 @@
     const f = state.form;
     const errors = {};
     if (!f.name.trim()) errors.name = T('err_name');
-    if (f.phone.replace(/\D/g, '').length < 9) errors.phone = T('err_phone');
+    if (canRequestContact()) {
+      if (!state.verifiedPhone) errors.phone = T('err_phone_share');
+    } else if (f.phone.replace(/\D/g, '').length < 9) errors.phone = T('err_phone');
     if (state.kind === 'delivery' && !f.address.trim() && f.lat == null) errors.address = T('err_address');
     state.errors = errors;
     return Object.values(errors)[0] || null;
@@ -734,7 +794,8 @@
       method: 'POST',
       body: {
         lang: state.lang, kind: state.kind, payment: state.payment,
-        name: f.name.trim(), phone: f.phone.trim(),
+        name: f.name.trim(), phone: canRequestContact() ? state.verifiedPhone : f.phone.trim(),
+        contact_supported: canRequestContact(),
         address: state.kind === 'delivery' ? f.address.trim() : '',
         lat: state.kind === 'delivery' ? f.lat : null, lon: state.kind === 'delivery' ? f.lon : null,
         comment: f.comment.trim(),
@@ -768,6 +829,8 @@
       case 'min_order': return T('min_need', { min: fmt(res.min_order || 0), left: fmt((res.min_order || 0) - cartTotal()) });
       case 'unavailable': return T('err_unavailable');
       case 'phone_invalid': return T('err_phone');
+      case 'phone_unverified': state.verifiedPhone = ''; return T('err_phone_share');
+      case 'out_of_zone': return T('err_out_of_zone', { dist: Number(res.distance_km).toFixed(1), radius: res.radius_km });
       case 'name_required': return T('err_name');
       case 'address_required': return T('err_address');
       case 'too_fast': return T('err_too_fast');
@@ -795,6 +858,26 @@
     });
     if (added < o.items.length) toast(T('repeat_partial'));
     go('cart');
+  }
+
+  function confirmDialog(text, cb) {
+    if (tg && tg.showConfirm && tg.isVersionAtLeast && tg.isVersionAtLeast('6.2')) tg.showConfirm(text, cb);
+    else cb(window.confirm(text));
+  }
+
+  function askCancel(id) {
+    confirmDialog(T('cancel_confirm', { id }), async (yes) => {
+      if (!yes) return;
+      const res = await api('api/orders/' + id + '/cancel?lang=' + state.lang, { method: 'POST', body: {} });
+      const fresh = res.order;
+      if (fresh && state.orders) state.orders = state.orders.map((o) => (o.id === fresh.id ? fresh : o));
+      if (state.lastOrder && fresh && state.lastOrder.id === fresh.id) state.lastOrder = fresh;
+      render();
+      if (res.ok) { haptic('ok'); toast(T('canceled_ok')); }
+      else if (res.error === 'cannot_cancel' && fresh && fresh.status === 'accepted') {
+        haptic('error'); toast(T('err_cannot_cancel', { phone: state.shop.phone }), true);
+      } else if (res.error !== 'cannot_cancel') { toast(errorText(res), true); }
+    });
   }
 
   async function setLang(lang) {
@@ -895,6 +978,7 @@
       case 'upsell-no': closeSheet(() => submitOrder()); break;
       case 'copy': copyCard(); break;
       case 'repeat': repeatOrder(id); break;
+      case 'cancel-order': askCancel(id); break;
       default: break;
     }
   }
