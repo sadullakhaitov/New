@@ -188,6 +188,8 @@ img { display: block; }
 .cta:active { transform: scale(.98); }
 .cta:disabled { background: var(--surface-2); color: var(--faint); box-shadow: none; }
 .cta.split { justify-content: space-between; }
+.cta-outline { width: 100%; min-height: 56px; border-radius: 18px; background: transparent; color: var(--text); border: 2px solid var(--muted); display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800; font-size: 15px; padding: 0 20px; transition: transform .15s, background-color .2s, border-color .2s; }
+.cta-outline:active { transform: scale(.98); background: var(--surface-2); border-color: var(--text); }
 .cart-bar { min-height: 64px; padding: 0 10px 0 20px; border-radius: 20px; justify-content: space-between; }
 .cart-bar .info { display: flex; flex-direction: column; text-align: left; }
 .cart-bar .info span { font-size: 12px; font-weight: 700; }

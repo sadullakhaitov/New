@@ -565,7 +565,7 @@
       '<h2 class="display">' + esc(T('upsell_q', { name: up.name })) + '</h2>' +
       '<div class="pill"><em>+' + money(up.price) + '</em></div>' +
       '<button class="cta" data-action="upsell-yes">' + icon('plus') + ' ' + T('upsell_yes') + '</button>' +
-      '<button class="link-btn" data-action="upsell-no">' + T('upsell_no') + '</button></div>';
+      '<button class="cta-outline" data-action="upsell-no">' + T('upsell_no') + '</button></div>';
   }
 
   function langSheet() {
