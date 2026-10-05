@@ -167,18 +167,26 @@ PHOTOS = {
     "Xagi (kichik)": "xagi", "Xagi (katta)": "xagi",
     "Doner (kichik)": "doner", "Doner (katta)": "doner",
     "Burger (kichik)": "burger", "Burger (katta)": "burger",
+    "Arab kabob (kichik)": "arab-kabob", "Arab kabob (katta)": "arab-kabob",
 }
 
 
 async def apply_photos(db: Database) -> int:
-    """Chizma rasmlarni suratlarga almashtiradi (bir marta). Admin yuklagan rasmlarga tegilmaydi."""
+    """Chizma rasmlarni suratlarga almashtiradi — har bir surat bir marta qo'yiladi.
+
+    Keyin ro'yxatga yangi surat qo'shilsa, faqat o'sha yangisi qo'yiladi. Admin yuklagan rasmlarga tegilmaydi.
+    """
+    done = set(filter(None, (await db.get_setting("photos_applied")).split(",")))
     if await db.get_setting("migr_photos_v1") == "1":
+        done |= {"lavash", "lavash-tandir", "xagi", "doner", "burger"}  # avvalgi versiyada qo'yilganlar
+    todo = {name: photo for name, photo in PHOTOS.items() if photo not in done}
+    if not todo:
         return 0
     count = 0
     for p in await db.products():
-        photo = PHOTOS.get(p["name_uz"])
+        photo = todo.get(p["name_uz"])
         if photo and (not p["img"] or p["img"].startswith("static/img/")):
             await db.update_product(p["id"], img=f"static/img/photos/{photo}.webp")
             count += 1
-    await db.set_setting("migr_photos_v1", "1")
+    await db.set_setting("photos_applied", ",".join(sorted(done | set(todo.values()))))
     return count

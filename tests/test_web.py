@@ -186,6 +186,21 @@ async def test_photos_applied_to_both_sizes(ctx):
     assert products["Burger (kichik)"]["img"] == products["Burger (katta)"]["img"] == "static/img/photos/burger.webp"
     assert products["Doner (katta)"]["img"].endswith("doner.webp")
     assert products["Chizburger (kichik)"]["img"] == "static/img/cheeseburger.svg"
-    for name in ("burger", "doner", "xagi", "lavash", "lavash-tandir"):
+    assert products["Arab kabob (katta)"]["img"] == "static/img/photos/arab-kabob.webp"
+    for name in ("burger", "doner", "xagi", "lavash", "lavash-tandir", "arab-kabob"):
         assert (await ctx.client.get(f"/static/img/photos/{name}.webp")).status == 200
     assert await apply_photos(ctx.db) == 0  # qayta ishga tushganda tegmaydi
+
+
+async def test_new_photo_applied_after_old_migration(fresh_db):
+    from bot.seed import apply_photos
+
+    db = fresh_db
+    pid = next(p["id"] for p in await db.products() if p["name_uz"] == "Arab kabob (kichik)")
+    # Eski holat: v1 bayrog'i qo'yilgan, arab kabob hali chizma
+    await db.update_product(pid, img="static/img/arab-kabob.svg")
+    await db.set_setting("photos_applied", "")
+    await db.set_setting("migr_photos_v1", "1")
+    assert await apply_photos(db) == 2
+    assert (await db.product(pid))["img"] == "static/img/photos/arab-kabob.webp"
+    assert await apply_photos(db) == 0
