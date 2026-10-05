@@ -1,8 +1,11 @@
 """Veb-server: Mini App fayllari va JSON API."""
 from __future__ import annotations
 
+import hashlib
+import io
 import logging
 import time
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -29,6 +32,8 @@ CFG = web.AppKey("cfg", Config)
 DB = web.AppKey("db", Database)
 BOT = web.AppKey("bot", Bot)
 LAST_ORDER = web.AppKey("last_order", dict)
+IMG_CACHE = web.AppKey("img_cache", OrderedDict)
+IMG_CACHE_SIZE = 60
 
 
 def _error(code: str, status: int = 400, **extra: Any) -> web.Response:
@@ -76,6 +81,45 @@ async def health(request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
+def image_url(product: dict[str, Any], fallback: str) -> str:
+    """Admin yuklagan rasm Telegramda saqlanadi (img = "tg:<file_id>") va /img/p/<id> orqali beriladi."""
+    img = product.get("img") or ""
+    if img.startswith("tg:"):
+        version = hashlib.sha1(img.encode()).hexdigest()[:8]
+        return f"img/p/{product['id']}?v={version}"
+    return img or fallback
+
+
+async def product_image(request: web.Request) -> web.Response:
+    try:
+        pid = int(request.match_info["pid"])
+    except ValueError:
+        raise web.HTTPNotFound() from None
+    product = await request.app[DB].product(pid)
+    if product is None or not (product["img"] or "").startswith("tg:"):
+        raise web.HTTPNotFound()
+    file_id = product["img"][3:]
+    cache = request.app[IMG_CACHE]
+    data = cache.get(file_id)
+    if data is None:
+        bot = request.app[BOT]
+        try:
+            file = await bot.get_file(file_id)
+            buf = io.BytesIO()
+            await bot.download_file(file.file_path, destination=buf)
+        except TelegramAPIError as exc:
+            log.warning("Rasm yuklanmadi (taom %s): %s", pid, exc)
+            raise web.HTTPNotFound() from None
+        data = buf.getvalue()
+        cache[file_id] = data
+        while len(cache) > IMG_CACHE_SIZE:
+            cache.popitem(last=False)
+    else:
+        cache.move_to_end(file_id)
+    return web.Response(body=data, content_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=604800, immutable"})
+
+
 # ---------- API ----------
 async def api_menu(request: web.Request) -> web.Response:
     db = request.app[DB]
@@ -90,7 +134,7 @@ async def api_menu(request: web.Request) -> web.Response:
                 "id": p["id"],
                 "name": localized(p, "name", lang),
                 "desc": localized(p, "desc", lang),
-                "img": p["img"] or cat["img"],
+                "img": image_url(p, cat["img"]),
                 "price": p["price"],
                 "price_large": p["price_large"],
                 "hit": bool(p["is_hit"]),
@@ -275,7 +319,7 @@ def create_app(cfg: Config, db: Database, bot: Bot) -> web.Application:
     app[DB] = db
     app[BOT] = bot
     app[LAST_ORDER] = {}
-    cfg.uploads_dir.mkdir(parents=True, exist_ok=True)
+    app[IMG_CACHE] = OrderedDict()
     app.router.add_get("/", index)
     app.router.add_get("/healthz", health)
     app.router.add_get("/api/menu", api_menu)
@@ -283,6 +327,6 @@ def create_app(cfg: Config, db: Database, bot: Bot) -> web.Application:
     app.router.add_post("/api/lang", api_lang)
     app.router.add_get("/api/orders", api_orders)
     app.router.add_post("/api/order", api_order)
+    app.router.add_get("/img/p/{pid}", product_image)
     app.router.add_static("/static/", WEBAPP_DIR)
-    app.router.add_static("/uploads/", cfg.uploads_dir)
     return app

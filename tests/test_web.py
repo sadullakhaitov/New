@@ -9,8 +9,6 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from bot.config import Config
-from bot.db import Database
-from bot.seed import seed
 from bot.web import create_app
 
 TOKEN = "123456:TEST-token"
@@ -36,24 +34,28 @@ class FakeBot:
     async def send_location(self, chat_id, lat, lon, **kw):
         self.sent.append(("location", chat_id, (lat, lon)))
 
+    async def get_file(self, file_id):
+        return SimpleNamespace(file_path=f"photos/{file_id}.jpg")
+
+    async def download_file(self, path, destination):
+        self.sent.append(("download", path, None))
+        destination.write(b"\xff\xd8JPEG")
+
 
 USER = {"id": 777, "first_name": "Sardor", "language_code": "uz"}
 
 
 @pytest.fixture
-async def ctx(tmp_path):
+async def ctx(tmp_path, fresh_db):
     cfg = Config(bot_token=TOKEN, base_url="https://example.com", mode="polling", host="127.0.0.1",
                  port=0, data_dir=tmp_path, superadmins=frozenset())
-    db = Database(":memory:")
-    await db.connect()
-    await seed(db)
+    db = fresh_db
     await db.set_setting("group_chat_id", "-100500")
     bot = FakeBot()
     client = TestClient(TestServer(create_app(cfg, db, bot)))
     await client.start_server()
     yield SimpleNamespace(client=client, db=db, bot=bot)
     await client.close()
-    await db.close()
 
 
 def auth(user=USER, **kw):
@@ -136,3 +138,16 @@ async def test_closed_shop(ctx):
             "items": [{"id": fri, "qty": 1}]}
     resp = await ctx.client.post("/api/order", json=body, headers=auth())
     assert resp.status == 409 and (await resp.json())["error"] == "closed"
+
+
+async def test_uploaded_photo_served_from_telegram(ctx):
+    pid = await product_id(ctx.db, "Burger")
+    await ctx.db.update_product(pid, img="tg:AgACAgIAAx")
+    data = await (await ctx.client.get("/api/menu")).json()
+    img = next(p["img"] for c in data["categories"] for p in c["products"] if p["id"] == pid)
+    assert img.startswith(f"img/p/{pid}?v=")
+    for _ in range(2):
+        resp = await ctx.client.get("/" + img)
+        assert resp.status == 200 and await resp.read() == b"\xff\xd8JPEG"
+    assert [k for k, *_ in ctx.bot.sent].count("download") == 1  # ikkinchi marta keshdan
+    assert (await ctx.client.get("/img/p/1")).status == 404

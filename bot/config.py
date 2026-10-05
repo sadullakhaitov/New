@@ -36,14 +36,12 @@ class Config:
     port: int
     data_dir: Path
     superadmins: frozenset[int]
+    database_url: str = ""
 
     @property
-    def db_path(self) -> Path:
-        return self.data_dir / "emirfood.db"
-
-    @property
-    def uploads_dir(self) -> Path:
-        return self.data_dir / "uploads"
+    def database(self) -> str:
+        """PostgreSQL manzili (DATABASE_URL) yoki SQLite fayl yo'li."""
+        return self.database_url or str(self.data_dir / "emirfood.db")
 
     @property
     def webapp_url(self) -> str | None:
@@ -79,7 +77,8 @@ def load_config() -> Config:
     mode = os.environ.get("MODE", "polling").strip().lower()
     if mode not in {"polling", "webhook"}:
         raise SystemExit("MODE faqat 'polling' yoki 'webhook' bo'lishi mumkin.")
-    base_url = os.environ.get("BASE_URL", "").strip().rstrip("/")
+    # Render o'z manzilini RENDER_EXTERNAL_URL orqali beradi — BASE_URL yozilmasa shu olinadi.
+    base_url = (os.environ.get("BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
     if mode == "webhook" and not base_url.startswith("https://"):
         raise SystemExit("webhook rejimi uchun BASE_URL https:// bilan boshlanishi kerak.")
     data_dir = Path(os.environ.get("DATA_DIR", "data"))
@@ -93,4 +92,5 @@ def load_config() -> Config:
         port=int(os.environ.get("PORT", "8080")),
         data_dir=data_dir,
         superadmins=_parse_ids(os.environ.get("SUPERADMIN_IDS", "")),
+        database_url=os.environ.get("DATABASE_URL", "").strip(),
     )

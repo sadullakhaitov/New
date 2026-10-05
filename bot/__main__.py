@@ -33,7 +33,7 @@ async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = load_config()
 
-    db = Database(cfg.db_path)
+    db = Database(cfg.database)
     await db.connect()
     await seed(db)
 
@@ -51,7 +51,8 @@ async def main() -> None:
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, cfg.host, cfg.port).start()
-    log.info("Veb-server: http://%s:%s  (Mini App: %s)", cfg.host, cfg.port, cfg.webapp_url or "HTTPS yo'q")
+    log.info("Veb-server: http://%s:%s  (Mini App: %s, baza: %s)", cfg.host, cfg.port,
+             cfg.webapp_url or "HTTPS yo'q", "PostgreSQL" if db.is_pg else "SQLite")
     if not cfg.webapp_url:
         log.warning("BASE_URL https:// emas — Telegram Mini App ochilmaydi. README dagi ko'rsatmaga qarang.")
 

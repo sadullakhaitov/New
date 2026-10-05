@@ -27,7 +27,7 @@
       else tg.HapticFeedback.impactOccurred(kind || 'light');
     } catch (e) { /* ignore */ }
   };
-  const isPhoto = (src) => /^uploads\//.test(src || '');
+  const isPhoto = (src) => /^img\/p\//.test(src || '');
 
   function T(key, vars) {
     const dict = window.I18N[state.lang] || window.I18N.uz;

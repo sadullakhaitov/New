@@ -14,9 +14,7 @@ from aiogram.types import (
 
 from bot import access
 from bot.config import Config
-from bot.db import Database
 from bot.handlers import admin, user
-from bot.seed import seed
 
 ADMIN_ID, CLIENT_ID, GROUP_ID = 10, 20, -1001
 
@@ -62,12 +60,10 @@ def _dispatcher() -> Dispatcher:
 
 
 @pytest.fixture
-async def env(tmp_path):
+async def env(tmp_path, fresh_db):
     cfg = Config(bot_token="42:TEST", base_url="https://example.com", mode="polling", host="", port=0,
                  data_dir=tmp_path, superadmins=frozenset())
-    db = Database(":memory:")
-    await db.connect()
-    await seed(db)
+    db = fresh_db
     session = FakeSession()
     bot = Bot("42:TEST", session=session, default=DefaultBotProperties(parse_mode="HTML"))
     dp = _dispatcher()
@@ -75,7 +71,6 @@ async def env(tmp_path):
     dp.fsm.storage = MemoryStorage()
     access.forget()
     yield bot, dp, db, session
-    await db.close()
 
 
 _uid = iter(range(1, 10_000))

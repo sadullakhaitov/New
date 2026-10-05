@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from datetime import datetime, timedelta
 from html import escape
 
@@ -271,12 +270,11 @@ async def cb_delete_ask(call: CallbackQuery, db: Database) -> None:
 
 
 @admin_calls.callback_query(F.data.startswith("a:pdy:"))
-async def cb_delete(call: CallbackQuery, db: Database, cfg: Config) -> None:
+async def cb_delete(call: CallbackQuery, db: Database) -> None:
     pid = int(call.data.split(":")[2])
     p = await db.product(pid)
     if p:
         await db.delete_product(pid)
-        _remove_upload(cfg, p["img"])
         text, markup = await category_view(db, p["category_id"])
         await _edit(call, "✅ O'chirildi.\n\n" + text, markup)
     await call.answer()
@@ -368,15 +366,6 @@ async def on_value(message: Message, state: FSMContext, db: Database, cfg: Confi
     await message.answer("✅ Saqlandi.\n\n" + text_, reply_markup=markup)
 
 
-def _remove_upload(cfg: Config, img: str) -> None:
-    if img and img.startswith("uploads/"):
-        path = cfg.uploads_dir / img.split("/", 1)[1]
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            pass
-
-
 @router.message(Input.photo, F.photo)
 async def on_photo(message: Message, state: FSMContext, db: Database, cfg: Config, bot: Bot) -> None:
     if not await _guard_message(message, db, cfg, bot):
@@ -387,11 +376,8 @@ async def on_photo(message: Message, state: FSMContext, db: Database, cfg: Confi
     await state.clear()
     if product is None:
         return
-    cfg.uploads_dir.mkdir(parents=True, exist_ok=True)
-    name = f"p{pid}_{int(time.time())}.jpg"
-    await bot.download(message.photo[-1], destination=cfg.uploads_dir / name)
-    _remove_upload(cfg, product["img"])
-    await db.update_product(pid, img=f"uploads/{name}")
+    # Rasm Telegram serverlarida qoladi — hosting fayllarni o'chirsa ham yo'qolmaydi.
+    await db.update_product(pid, img="tg:" + message.photo[-1].file_id)
     view = await product_view(db, pid)
     await message.answer("✅ Rasm yangilandi.\n\n" + view[0], reply_markup=view[1])
 
@@ -560,16 +546,13 @@ async def cb_card_input(call: CallbackQuery, state: FSMContext) -> None:
 
 
 @admin_calls.callback_query(F.data == "a:backup")
-async def cb_backup(call: CallbackQuery, db: Database, cfg: Config) -> None:
-    target = cfg.data_dir / "backup.db"
-    await db.backup_to(target)
+async def cb_backup(call: CallbackQuery, db: Database) -> None:
+    data = await db.export_json()
     try:
         await call.message.answer_document(
-            BufferedInputFile(target.read_bytes(), filename=f"emirfood_{datetime.now(TASHKENT_TZ):%Y%m%d_%H%M}.db"),
-            caption="💾 Ma'lumotlar bazasi zaxira nusxasi (menyu, sozlamalar, buyurtmalar).",
+            BufferedInputFile(data, filename=f"emirfood_{datetime.now(TASHKENT_TZ):%Y%m%d_%H%M}.json"),
+            caption="💾 Zaxira nusxa: menyu, sozlamalar, mijozlar va buyurtmalar.",
         )
     except TelegramAPIError as exc:
         log.error("Zaxira yuborilmadi: %s", exc)
-    finally:
-        target.unlink(missing_ok=True)
     await call.answer()

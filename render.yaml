@@ -1,0 +1,21 @@
+# Render Blueprint: Dashboard → New → Blueprint → shu repozitoriyni tanlang.
+services:
+  - type: web
+    name: emirfood
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m bot
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: MODE
+        value: webhook
+      - key: BOT_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPERADMIN_IDS
+        sync: false
