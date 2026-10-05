@@ -401,6 +401,10 @@ button:active:not(:disabled), .mini:active { transform: scale(.96); }
 .card:active .card-img img { transform: scale(1.06) rotate(-3deg); }
 
 /* toast */
+#to-top { position: fixed; right: max(16px, calc(50% - 244px)); bottom: calc(20px + var(--safe-bottom)); z-index: 19; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: var(--yellow); color: #121110; box-shadow: 0 8px 22px rgba(0, 0, 0, .35); opacity: 0; visibility: hidden; transform: translateY(16px) scale(.8); transition: opacity .22s, transform .3s cubic-bezier(.2, .9, .3, 1), bottom .3s cubic-bezier(.2, .9, .3, 1), visibility 0s .3s; }
+#to-top.show { opacity: 1; visibility: visible; transform: none; transition: opacity .22s, transform .3s cubic-bezier(.2, .9, .3, 1), bottom .3s cubic-bezier(.2, .9, .3, 1); }
+#to-top.lifted { bottom: calc(96px + var(--safe-bottom)); }
+#to-top:active { transform: scale(.92); }
 #toast { position: fixed; left: 50%; top: 16px; transform: translate(-50%, -150%); z-index: 60; max-width: calc(100% - 32px); background: var(--text); color: var(--bg); padding: 12px 18px; border-radius: 14px; font-weight: 800; font-size: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, .4); transition: transform .3s cubic-bezier(.2, .9, .3, 1), opacity .25s, visibility 0s .3s; text-align: center; opacity: 0; visibility: hidden; pointer-events: none; }
 #toast:empty { display: none; }
 #toast.show { transform: translate(-50%, 0); opacity: 1; visibility: visible; transition: transform .3s cubic-bezier(.2, .9, .3, 1), opacity .2s; }
