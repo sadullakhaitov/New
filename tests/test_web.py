@@ -172,7 +172,7 @@ async def test_menu_banners(ctx):
     assert [b["theme"] for b in banners] == ["yellow", "red", "dark"]
     assert banners[0]["text"].startswith("50 000 so'm")
     assert banners[1]["text"].startswith("50 000 so'm") and banners[1]["product_id"]
-    assert banners[2]["img"] == "static/img/hotdog-qazi.svg"
+    assert banners[2]["img"] == "static/img/photos/hotdog-qazi.webp"
     # Ulangan taom yashirilsa — banner ham chiqmaydi
     await ctx.db.update_product(banners[1]["product_id"], is_active=0)
     data = await (await ctx.client.get("/api/menu?lang=ru")).json()
@@ -204,6 +204,6 @@ async def test_new_photo_applied_after_old_migration(fresh_db):
     await db.update_product(pid, img="static/img/arab-kabob.svg")
     await db.set_setting("photos_applied", "")
     await db.set_setting("migr_photos_v1", "1")
-    assert await apply_photos(db) == 2
+    assert await apply_photos(db) == 8  # arab kabob ×2 va xot-doglar ×6
     assert (await db.product(pid))["img"] == "static/img/photos/arab-kabob.webp"
     assert await apply_photos(db) == 0
