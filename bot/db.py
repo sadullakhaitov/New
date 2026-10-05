@@ -104,6 +104,10 @@ ORDER_EXTRA_COLUMNS = {
     "phone_verified": "INTEGER NOT NULL DEFAULT 0",
     # Do'kondan masofa (km), lokatsiya yuborilgan bo'lsa
     "distance_km": "REAL",
+    # To'lov cheki (Telegram file_id) — guruhda buyurtma bilan bitta xabarda turadi
+    "receipt_file_id": "TEXT NOT NULL DEFAULT ''",
+    "receipt_type": "TEXT NOT NULL DEFAULT ''",
+    "group_is_media": "INTEGER NOT NULL DEFAULT 0",
 }
 USER_EXTRA_COLUMNS = {
     # Telegram "kontaktni ulashish" orqali kelgan, egasi tasdiqlangan raqam
@@ -398,9 +402,16 @@ class Database:
             await self._sqlite.commit()
         return await self.order(order_id) if row else None
 
-    async def set_order_group_message(self, order_id: int, chat_id: int, message_id: int) -> None:
+    async def set_order_group_message(self, order_id: int, chat_id: int, message_id: int,
+                                      is_media: bool = False) -> None:
         await self._execute(
-            "UPDATE orders SET group_chat_id = ?, group_message_id = ? WHERE id = ?", (chat_id, message_id, order_id)
+            "UPDATE orders SET group_chat_id = ?, group_message_id = ?, group_is_media = ? WHERE id = ?",
+            (chat_id, message_id, 1 if is_media else 0, order_id),
+        )
+
+    async def set_order_receipt(self, order_id: int, file_id: str, kind: str) -> None:
+        await self._execute(
+            "UPDATE orders SET receipt_file_id = ?, receipt_type = ? WHERE id = ?", (file_id, kind, order_id)
         )
 
     async def recent_orders(self, limit: int = 10) -> list[dict[str, Any]]:

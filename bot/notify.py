@@ -22,46 +22,68 @@ def _line_name(line: dict[str, Any], lang: str) -> str:
 def order_lines_text(order: dict[str, Any], lang: str) -> str:
     cur = t("currency", lang)
     return "\n".join(
-        f"• {escape(_line_name(line, lang))} × {line['qty']} = {format_sum(line['sum'])} {cur}"
+        f"▫️ {line['qty']} × {escape(_line_name(line, lang))} — {format_sum(line['sum'])} {cur}"
         for line in order["items"]
     )
 
 
+SEP = "➖➖➖➖➖➖➖➖"
+# Telegram rasm/fayl izohi (caption) shu uzunlikdan oshmasligi kerak
+CAPTION_LIMIT = 1024
+
+
+def map_links(lat: float, lon: float) -> str:
+    return (f'<a href="https://maps.google.com/?q={lat},{lon}">Google xarita</a>  ·  '
+            f'<a href="https://yandex.uz/maps/?pt={lon},{lat}&amp;z=17&amp;l=map">Yandex xarita</a>')
+
+
 def group_order_text(order: dict[str, Any], username: str = "") -> str:
-    """Xodimlar guruhiga boradigan xabar (doim o'zbek lotin)."""
-    created = datetime.fromisoformat(order["created_at"]).strftime("%d.%m %H:%M")
-    who = f'<a href="tg://user?id={order["user_id"]}">{escape(order["name"])}</a>'
-    if username:
-        who += f" (@{escape(username)})"
-    parts = [
-        f"🆕 <b>Yangi buyurtma №{order['id']}</b>  ·  {created}",
-        "",
-        f"👤 {who}",
-        f"📞 {escape(order['phone'])}" + (
-            " ✅ <i>Telegram orqali tasdiqlangan</i>" if order.get("phone_verified")
-            else " ⚠️ <i>qo'lda yozilgan, tasdiqlanmagan</i>"
-        ),
-    ]
+    """Xodimlar guruhiga boradigan xabar (doim o'zbek lotin).
+
+    Tartib: holat → taomlar va summa → to'lov → olib ketish/yetkazish → mijoz.
+    """
+    created = datetime.fromisoformat(order["created_at"]).strftime("%d.%m · %H:%M")
+    status = order.get("status") or "new"
+    when = datetime.fromisoformat(order["status_at"]).strftime("%H:%M") if order.get("status_at") else ""
+    by = escape(order.get("status_by") or "")
+    head = {
+        "new": "🆕 <b>YANGI BUYURTMA</b>",
+        "accepted": f"✅ <b>QABUL QILINDI</b> — {by}, {when}",
+        "canceled": f"❌ <b>BEKOR QILINDI</b> — {by}, {when}",
+    }.get(status, "🆕 <b>YANGI BUYURTMA</b>")
+    parts = [head, f"<b>№{order['id']}</b>  ·  🕒 {created}", SEP, order_lines_text(order, "uz"), "",
+             f"💰 <b>JAMI: {format_sum(order['total'])} so'm</b>"]
+
+    if order["payment"] == "cash":
+        parts.append("💵 To'lov: <b>naqd pul</b>")
+    elif order.get("receipt_file_id"):
+        parts.append("💳 To'lov: <b>kartaga</b> — 🧾 chek ilova qilingan ✅")
+    else:
+        parts.append("💳 To'lov: <b>kartaga</b> — ⏳ chek hali yuborilmagan")
+    parts.append(SEP)
+
     if order["kind"] == "delivery":
-        parts.append("🚚 <b>Yetkazib berish</b>")
+        parts.append("🚚 <b>YETKAZIB BERISH</b>")
         if order.get("address"):
-            parts.append(f"📍 {escape(order['address'])}")
+            parts.append(f"🏠 {escape(order['address'])}")
         if order.get("lat") is not None:
             dist = order.get("distance_km")
-            parts.append("🗺 Lokatsiya pastda 👇" + (f"  ·  📏 {dist:.1f} km" if dist is not None else ""))
+            parts.append("📍 " + map_links(order["lat"], order["lon"])
+                         + (f"  ·  {dist:.1f} km" if dist is not None else ""))
         else:
-            parts.append("⚠️ Lokatsiya yuborilmagan — manzil hudud ichidaligini tekshiring")
+            parts.append("⚠️ Lokatsiya yo'q — manzil hudud ichidaligini tekshiring")
     else:
-        parts.append("🏃 <b>Olib ketadi</b>")
-    parts.append("💵 Naqd" if order["payment"] == "cash" else "💳 Kartaga o'tkazma (chekni kuting)")
-    parts += ["", order_lines_text(order, "uz"), "", f"💰 <b>Jami: {format_sum(order['total'])} so'm</b>"]
+        parts.append("🏃 <b>OLIB KETADI</b> (do'kondan)")
+    parts.append(SEP)
+
+    who = f'<a href="tg://user?id={order["user_id"]}">{escape(order["name"])}</a>'
+    if username:
+        who += f" · @{escape(username)}"
+    parts.append(f"👤 {who}")
+    parts.append(f"📞 {escape(order['phone'])}" + (
+        "  ✅ tasdiqlangan" if order.get("phone_verified") else "  ⚠️ qo'lda yozilgan, tasdiqlanmagan"))
     if order.get("comment"):
-        parts.append(f"💬 {escape(order['comment'])}")
-    status = order.get("status") or "new"
-    if status != "new":
-        when = datetime.fromisoformat(order["status_at"]).strftime("%H:%M") if order.get("status_at") else ""
-        label = "✅ <b>QABUL QILINDI</b>" if status == "accepted" else "❌ <b>BEKOR QILINDI</b>"
-        parts += ["", f"{label} — {escape(order.get('status_by') or '')} · {when}"]
+        parts.append(f"💬 <i>{escape(order['comment'])}</i>")
     return "\n".join(parts)
 
 

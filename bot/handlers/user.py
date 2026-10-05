@@ -12,12 +12,11 @@ from aiogram.types import (
     MenuButtonWebApp, Message, ReplyKeyboardMarkup, WebAppInfo,
 )
 
-from ..access import group_id
 from ..config import Config
 from ..core import LANGS, format_sum, norm_lang, normalize_phone, shop_status
 from ..db import Database
 from ..notify import history_text
-from ..staff import cancel_by_customer
+from ..staff import attach_receipt, cancel_by_customer
 from ..texts import LANG_NAMES, TEXTS, t
 
 log = logging.getLogger(__name__)
@@ -221,22 +220,19 @@ async def contact(message: Message, db: Database) -> None:
 
 @router.message(F.photo | F.document)
 async def receipt(message: Message, db: Database, bot: Bot) -> None:
-    """To'lov chekini xodimlar guruhiga yuboradi."""
+    """To'lov chekini guruhdagi buyurtma xabariga qo'shadi (bitta xabar bo'lib turadi)."""
     lang = await _lang(db, message)
-    orders = await db.user_orders(message.from_user.id, limit=1)
+    orders = await db.user_orders(message.from_user.id, limit=5)
     if not orders:
         await message.answer(t("receipt_no_order", lang))
         return
-    order = orders[0]
-    gid = await group_id(db)
-    if gid is not None:
-        caption = (f"🧾 <b>To'lov cheki</b> — buyurtma №{order['id']}\n"
-                   f"👤 {escape(order['name'])}, {escape(order['phone'])}\n"
-                   f"💰 {format_sum(order['total'])} so'm")
-        try:
-            await bot.copy_message(gid, message.chat.id, message.message_id, caption=caption)
-        except TelegramAPIError as exc:
-            log.error("Chek guruhga yuborilmadi: %s", exc)
+    # Avvalo kartaga to'lanadigan, bekor qilinmagan oxirgi buyurtma
+    order = next((o for o in orders if o["payment"] == "card" and o.get("status") != "canceled"), orders[0])
+    if message.photo:
+        file_id, kind = message.photo[-1].file_id, "photo"
+    else:
+        file_id, kind = message.document.file_id, "document"
+    await attach_receipt(bot, db, order["id"], file_id, kind)
     await message.answer(t("receipt_ok", lang, id=order["id"]))
 
 

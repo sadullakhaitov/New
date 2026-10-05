@@ -37,6 +37,16 @@ class FakeBot:
     async def edit_message_text(self, text, chat_id=None, message_id=None, **kw):
         self.sent.append(("edit", chat_id, text))
 
+    async def edit_message_caption(self, chat_id=None, message_id=None, caption=None, **kw):
+        self.sent.append(("edit_caption", chat_id, caption))
+
+    async def send_photo(self, chat_id, photo, caption=None, **kw):
+        self.sent.append(("photo", chat_id, caption))
+        return SimpleNamespace(message_id=len(self.sent))
+
+    async def delete_message(self, chat_id, message_id):
+        self.sent.append(("delete", chat_id, message_id))
+
     async def get_file(self, file_id):
         return SimpleNamespace(file_path=f"photos/{file_id}.jpg")
 
@@ -115,9 +125,12 @@ async def test_order_flow(ctx):
     assert order["id"] == 1001 and order["total"] == 88000
 
     kinds = [(k, chat) for k, chat, _ in ctx.bot.sent]
-    assert ("message", -100500) in kinds and ("location", -100500) in kinds and ("message", 777) in kinds
+    # Lokatsiya alohida xabar emas — xarita havolasi buyurtma ichida
+    assert kinds.count(("message", -100500)) == 1 and ("message", 777) in kinds
+    assert all(k != "location" for k, _ in kinds)
     group_text = next(t for k, c, t in ctx.bot.sent if k == "message" and c == -100500)
-    assert "№1001" in group_text and "88 000" in group_text and "Kartaga" in group_text
+    assert "№1001" in group_text and "88 000" in group_text and "kartaga" in group_text
+    assert "chek hali yuborilmagan" in group_text and "maps.google.com/?q=39.98,64.5" in group_text
     user_text = next(t for k, c, t in ctx.bot.sent if k == "message" and c == 777)
     assert "1234 5678 8910 1112" in user_text
 
@@ -271,7 +284,7 @@ async def test_delivery_zone(ctx):
     data = await (await ctx.client.post("/api/order", json=near, headers=auth())).json()
     assert data["ok"], data
     group_text = next(t for k, c, t in ctx.bot.sent if k == "message" and c == -100500)
-    assert "1.1 km" in group_text and "Telegram orqali tasdiqlangan" in group_text
+    assert "1.1 km" in group_text and "✅ tasdiqlangan" in group_text
 
 
 async def test_customer_cancel(ctx):
@@ -297,3 +310,26 @@ async def test_customer_cannot_cancel_after_accept(ctx):
     data = await resp.json()
     assert resp.status == 409 and data["error"] == "cannot_cancel" and data["order"]["status"] == "accepted"
     assert (await ctx.db.order(oid))["status"] == "accepted"
+
+
+async def test_receipt_joins_order_message(ctx):
+    from bot.staff import attach_receipt, refresh_group_message
+
+    await verify(ctx.db, "+998901234567")
+    fri = await product_id(ctx.db, "Fri")
+    body = _fri_body(fri, payment="card")
+    oid = (await (await ctx.client.post("/api/order", json=body, headers=auth())).json())["order"]["id"]
+    old_mid = (await ctx.db.order(oid))["group_message_id"]
+
+    assert await attach_receipt(ctx.bot, ctx.db, oid, "PHOTO_ID", "photo")
+    photo = next(e for e in ctx.bot.sent if e[0] == "photo")
+    # Chek rasmi + buyurtmaning to'liq matni bitta xabarda, eski matnli xabar o'chiriladi
+    assert photo[1] == -100500 and f"№{oid}" in photo[2] and "chek ilova qilingan" in photo[2]
+    assert ("delete", -100500, old_mid) in ctx.bot.sent
+    order = await ctx.db.order(oid)
+    assert order["group_is_media"] == 1 and order["receipt_file_id"] == "PHOTO_ID"
+
+    # Keyingi yangilanishlar (qabul/bekor) rasm izohini o'zgartiradi
+    await ctx.db.set_order_status(oid, "accepted", "Xodim")
+    await refresh_group_message(ctx.bot, ctx.db, await ctx.db.order(oid))
+    assert ctx.bot.sent[-1][0] == "edit_caption" and "QABUL QILINDI" in ctx.bot.sent[-1][2]

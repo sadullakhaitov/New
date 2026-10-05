@@ -11,7 +11,8 @@ from .. import access
 from ..config import Config
 from ..core import norm_lang
 from ..db import Database
-from ..notify import cancel_confirm_keyboard, group_order_keyboard, group_order_text
+from ..notify import cancel_confirm_keyboard
+from ..staff import edit_group_message
 from ..texts import t
 
 log = logging.getLogger(__name__)
@@ -33,12 +34,9 @@ async def _allowed(call: CallbackQuery, db: Database, cfg: Config) -> bool:
 
 async def _refresh(call: CallbackQuery, db: Database, order: dict) -> None:
     user = await db.user(order["user_id"])
-    text = group_order_text(order, (user or {}).get("username", ""))
-    try:
-        await call.message.edit_text(text, reply_markup=group_order_keyboard(order))
-    except TelegramBadRequest as exc:
-        if "message is not modified" not in str(exc):
-            log.warning("Buyurtma №%s xabari yangilanmadi: %s", order["id"], exc)
+    is_media = bool(call.message.photo or call.message.document)
+    await edit_group_message(call.bot, call.message.chat.id, call.message.message_id, order,
+                             (user or {}).get("username", ""), is_media)
 
 
 async def _notify_customer(bot: Bot, db: Database, order: dict, key: str) -> None:
