@@ -171,6 +171,7 @@ PHOTOS = {
     "Chizburger (kichik)": "cheeseburger", "Chizburger (katta)": "cheeseburger",
     "Longer": "longer", "Klab sendvich": "club-sandwich",
     "KFC (qanotcha, fele)": "kfc",
+    "Fri": "fries",
     "Xot-dog Klassika (kichik)": "hotdog-classic", "Xot-dog Klassika (katta)": "hotdog-classic",
     "Qazi xot-dog (kichik)": "hotdog-qazi", "Qazi xot-dog (katta)": "hotdog-qazi",
     "Go'shtli xot-dog": "hotdog-meat",
