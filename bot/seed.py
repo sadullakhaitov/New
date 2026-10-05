@@ -5,6 +5,7 @@ None — narx hali kiritilmagan: menyuda "Tez orada" bo'lib turadi.
 """
 from __future__ import annotations
 
+from .core import localized
 from .db import Database
 
 DEFAULT_SETTINGS = {
@@ -83,3 +84,41 @@ async def seed(db: Database) -> None:
         )
         if uz == UPSELL_NAME:
             await db.set_setting("upsell_product_id", str(pid))
+
+
+SIZE_SUFFIX = {
+    "small": {"uz": " (kichik)", "cyr": " (кичик)", "ru": " (маленький)"},
+    "large": {"uz": " (katta)", "cyr": " (катта)", "ru": " (большой)"},
+}
+
+
+async def split_sizes(db: Database) -> int:
+    """Kichik/katta o'lchamli taomlarni ikkita alohida taomga ajratadi (bir marta ishlaydi).
+
+    "Qazi xot-dog" (28 000 / 38 000) -> "Qazi xot-dog (kichik)" 28 000 va "Qazi xot-dog (katta)" 38 000.
+    """
+    if await db.get_setting("migr_split_sizes") == "1":
+        return 0
+    count = 0
+    for p in await db.products():
+        if p["price_large"] is None:
+            continue
+        names = {lang: localized(p, "name", lang) for lang in ("uz", "cyr", "ru")}
+        await db.add_product(
+            category_id=p["category_id"],
+            name_uz=names["uz"] + SIZE_SUFFIX["large"]["uz"],
+            name_cyr=names["cyr"] + SIZE_SUFFIX["large"]["cyr"],
+            name_ru=names["ru"] + SIZE_SUFFIX["large"]["ru"],
+            desc_uz=p["desc_uz"], desc_cyr=p["desc_cyr"], desc_ru=p["desc_ru"],
+            img=p["img"], price=p["price_large"], is_active=p["is_active"], is_hit=p["is_hit"],
+            sort=p["sort"] + 5,
+        )
+        await db.update_product(
+            p["id"], price_large=None,
+            name_uz=names["uz"] + SIZE_SUFFIX["small"]["uz"],
+            name_cyr=names["cyr"] + SIZE_SUFFIX["small"]["cyr"],
+            name_ru=names["ru"] + SIZE_SUFFIX["small"]["ru"],
+        )
+        count += 1
+    await db.set_setting("migr_split_sizes", "1")
+    return count

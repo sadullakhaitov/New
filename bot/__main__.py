@@ -15,7 +15,7 @@ from aiohttp import web
 from .config import load_config
 from .db import Database
 from .handlers import admin, user
-from .seed import seed
+from .seed import seed, split_sizes
 from .web import create_app
 
 log = logging.getLogger("emirfood")
@@ -36,6 +36,8 @@ async def main() -> None:
     db = Database(cfg.database)
     await db.connect()
     await seed(db)
+    if (split := await split_sizes(db)):
+        log.info("%s ta taom kichik/katta bo'yicha ajratildi", split)
 
     bot = Bot(cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage(), db=db, cfg=cfg)

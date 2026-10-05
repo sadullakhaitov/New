@@ -148,7 +148,6 @@ async def test_add_product(env):
     await dp.feed_update(bot, cb(f"a:addc:{cat['id']}", ADMIN_ID))
     await dp.feed_update(bot, msg("Tovuq lavash", ADMIN_ID))
     await dp.feed_update(bot, msg("38", ADMIN_ID))
-    await dp.feed_update(bot, msg("-", ADMIN_ID))
     p = next(p for p in await db.products(cat["id"]) if p["name_uz"] == "Tovuq lavash")
     assert p["price"] == 38000 and p["price_large"] is None
 

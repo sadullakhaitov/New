@@ -71,7 +71,7 @@ async def test_menu(ctx):
     data = await resp.json()
     assert data["ok"] and data["shop"]["open"] and data["shop"]["min_order"] == 50000
     names = [p["name"] for c in data["categories"] for p in c["products"]]
-    assert "Хот-дог с казы" in names
+    assert "Хот-дог с казы (маленький)" in names and "Хот-дог с казы (большой)" in names
     soon = [p for c in data["categories"] for p in c["products"] if p["name"] == "Эмир бургер"][0]
     assert soon["available"] is False
 
@@ -92,12 +92,12 @@ async def test_auth_required(ctx):
 
 
 async def test_order_flow(ctx):
-    qazi = await product_id(ctx.db, "Qazi xot-dog")
+    qazi = await product_id(ctx.db, "Qazi xot-dog (katta)")
     lavash = await product_id(ctx.db, "Emir lavash")
     body = {
         "lang": "uz", "kind": "delivery", "payment": "card", "name": "Sardor", "phone": "95 289 85 55",
         "address": "Maktab yonida", "lat": 39.98, "lon": 64.5, "comment": "achchiq bo'lmasin",
-        "items": [{"id": qazi, "size": "large", "qty": 1}, {"id": lavash, "size": "small", "qty": 1}],
+        "items": [{"id": qazi, "qty": 1}, {"id": lavash, "size": "small", "qty": 1}],
     }
     resp = await ctx.client.post("/api/order", json=body, headers=auth())
     data = await resp.json()
@@ -115,7 +115,7 @@ async def test_order_flow(ctx):
     me = await (await ctx.client.post("/api/me", headers=auth())).json()
     assert me["user"]["phone"] == "+998952898555"
     orders = await (await ctx.client.get("/api/orders?lang=ru", headers=auth())).json()
-    assert orders["orders"][0]["items"][0]["name"] == "Хот-дог с казы"
+    assert orders["orders"][0]["items"][0]["name"] == "Хот-дог с казы (большой)"
 
     again = await ctx.client.post("/api/order", json=body, headers=auth())
     assert (await again.json())["error"] == "too_fast"
@@ -141,7 +141,7 @@ async def test_closed_shop(ctx):
 
 
 async def test_uploaded_photo_served_from_telegram(ctx):
-    pid = await product_id(ctx.db, "Burger")
+    pid = await product_id(ctx.db, "Burger (katta)")
     await ctx.db.update_product(pid, img="tg:AgACAgIAAx")
     data = await (await ctx.client.get("/api/menu")).json()
     img = next(p["img"] for c in data["categories"] for p in c["products"] if p["id"] == pid)
@@ -151,3 +151,16 @@ async def test_uploaded_photo_served_from_telegram(ctx):
         assert resp.status == 200 and await resp.read() == b"\xff\xd8JPEG"
     assert [k for k, *_ in ctx.bot.sent].count("download") == 1  # ikkinchi marta keshdan
     assert (await ctx.client.get("/img/p/1")).status == 404
+
+
+async def test_sizes_split_into_separate_items(ctx):
+    from bot.seed import split_sizes
+
+    products = {p["name_uz"]: p for p in await ctx.db.products()}
+    assert all(p["price_large"] is None for p in products.values())
+    assert products["Xot-dog Klassika (kichik)"]["price"] == 15000
+    assert products["Xot-dog Klassika (katta)"]["price"] == 18000
+    assert products["Burger (katta)"]["name_cyr"] == "Бургер (катта)"
+    assert products["Go'shtli xot-dog"]["price"] == 25000  # bitta o'lchamli taom o'zgarmaydi
+    assert len(products) == 20 + 7
+    assert await split_sizes(ctx.db) == 0  # qayta ishga tushganda hech narsa qilmaydi

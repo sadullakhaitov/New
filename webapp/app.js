@@ -177,7 +177,8 @@
   }
   function sizeNote(p) {
     if (!p.available) return T('price_soon');
-    return p.price_large != null ? T('small') + ' · ' + T('large') : T('one_size');
+    if (p.price_large != null) return T('small') + ' · ' + T('large');
+    return esc(p.desc || '');
   }
 
   function backHeader(title, right) {
@@ -224,13 +225,23 @@
     return html;
   }
 
+  // "Qazi xot-dog (katta)" -> nom + o'lcham belgisi
+  const SIZE_WORDS = { kichik: 'small', 'кичик': 'small', 'маленький': 'small', katta: 'large', 'катта': 'large', 'большой': 'large' };
+  function splitSize(name) {
+    const m = /^(.*\S)\s*\(([^)]+)\)$/.exec(name || '');
+    const kind = m && SIZE_WORDS[m[2].toLowerCase()];
+    return kind ? { base: m[1], label: m[2], kind } : { base: name, label: '', kind: '' };
+  }
+  const sizeTag = (sz) => (sz.kind ? ' <span class="size-tag ' + sz.kind + '">' + esc(sz.label) + '</span>' : '');
+
   function renderCard(p) {
+    const sz = splitSize(p.name);
     const q = qtyOf(p.id);
-    return '<div class="card' + (p.available ? '' : ' soon') + '" data-action="open" data-id="' + p.id + '" role="button" tabindex="0" aria-label="' + esc(p.name) + '">' +
+    return '<div class="card' + (p.available ? '' : ' soon') + (sz.kind === 'small' ? ' is-small' : '') + '" data-action="open" data-id="' + p.id + '" role="button" tabindex="0" aria-label="' + esc(p.name) + '">' +
       '<div class="card-img">' + img(p.img) +
       (p.hit ? '<span class="badge-hit">' + icon('fire') + ' HIT</span>' : '') +
       (q ? '<span class="badge-qty">' + q + '</span>' : '') + '</div>' +
-      '<div class="card-name">' + esc(p.name) + '</div><div class="card-note">' + sizeNote(p) + '</div>' +
+      '<div class="card-name">' + esc(sz.base) + sizeTag(sz) + '</div><div class="card-note">' + sizeNote(p) + '</div>' +
       '<div class="card-foot">' + priceLabel(p) +
       (p.available ? '<button class="add-btn" data-action="quick-add" data-id="' + p.id + '" aria-label="' + T('add') + '">' + icon('plus') + '</button>' : '') +
       '</div></div>';
@@ -694,7 +705,8 @@
     let added = 0;
     o.items.forEach((i) => {
       const p = state.products.get(i.id);
-      if (p && p.available) { addToCart(i.id, i.size === 'large' ? 'large' : 'small', i.qty); added += 1; }
+      const sizeOk = i.size !== 'large' || (p && p.price_large != null);
+      if (p && p.available && sizeOk) { addToCart(i.id, i.size === 'large' ? 'large' : 'small', i.qty); added += 1; }
     });
     if (added < o.items.length) toast(T('repeat_partial'));
     go('cart');

@@ -3,7 +3,7 @@ import os
 import pytest
 
 from bot.db import Database, asyncpg_dsn
-from bot.seed import seed
+from bot.seed import seed, split_sizes
 
 
 @pytest.fixture
@@ -22,5 +22,6 @@ async def fresh_db():
     db = Database(url or ":memory:")
     await db.connect()
     await seed(db)
+    await split_sizes(db)
     yield db
     await db.close()

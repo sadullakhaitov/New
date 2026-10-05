@@ -34,7 +34,6 @@ class Input(StatesGroup):
 class AddProduct(StatesGroup):
     name = State()
     price = State()
-    price_large = State()
 
 
 def kb(*rows: list[tuple[str, str]]) -> InlineKeyboardMarkup:
@@ -49,9 +48,7 @@ CANCEL_KB = kb([("❌ Bekor qilish", "a:cancel")])
 def price_text(p: dict) -> str:
     if p["price"] is None:
         return "narx yo'q (Tez orada)"
-    if p["price_large"] is None:
-        return f"{format_sum(p['price'])} so'm"
-    return f"kichik {format_sum(p['price'])} / katta {format_sum(p['price_large'])} so'm"
+    return f"{format_sum(p['price'])} so'm"
 
 
 async def _edit(call: CallbackQuery, text: str, markup: InlineKeyboardMarkup) -> None:
@@ -215,8 +212,7 @@ async def product_view(db: Database, pid: int) -> tuple[str, InlineKeyboardMarku
         f"⭐ Hit: {'ha' if p['is_hit'] else 'yo‘q'}"
     )
     markup = kb(
-        [("💰 Narx (kichik/yagona)", f"a:pp:{pid}"), ("💰 Katta narx", f"a:pl:{pid}")],
-        [("✏️ Nomi", f"a:pn:{pid}"), ("🖼 Rasm", f"a:pi:{pid}")],
+        [("💰 Narx", f"a:pp:{pid}"), ("✏️ Nomi", f"a:pn:{pid}"), ("🖼 Rasm", f"a:pi:{pid}")],
         [("🙈 Yashirish" if p["is_active"] else "👁 Ko'rsatish", f"a:pt:{pid}"),
          ("⭐ Hitni olib tashlash" if p["is_hit"] else "⭐ Hit qilish", f"a:ph:{pid}")],
         [("🗑 O'chirish", f"a:pd:{pid}")],
@@ -285,7 +281,6 @@ async def cb_delete(call: CallbackQuery, db: Database) -> None:
 PROMPTS = {
     "pp": "💰 Yangi narxni yozing (so'mda).\nMasalan: <code>35000</code> yoki <code>35</code>.\n"
           "<code>-</code> — narxni olib tashlash (menyuda «Tez orada» bo'ladi).",
-    "pl": "💰 Katta o'lcham narxini yozing.\n<code>-</code> — katta o'lcham yo'q (bitta o'lcham).",
     "pn": "✏️ Yangi nomni yozing (lotinda).\nKirill avtomatik yoziladi.\n"
           "Uch tilda yozish uchun: <code>Lotin | Кирилл | Русский</code>",
     "card": "💳 Yangi karta raqamini yozing (16 xonali).",
@@ -296,7 +291,7 @@ PROMPTS = {
 }
 
 
-@admin_calls.callback_query(F.data.regexp(r"^a:(pp|pl|pn):\d+$"))
+@admin_calls.callback_query(F.data.regexp(r"^a:(pp|pn):\d+$"))
 async def cb_ask_product_field(call: CallbackQuery, state: FSMContext) -> None:
     _, action, pid = call.data.split(":")
     await state.set_state(Input.value)
@@ -323,12 +318,8 @@ async def on_value(message: Message, state: FSMContext, db: Database, cfg: Confi
     text = message.text.strip()
 
     try:
-        if action in {"pp", "pl"}:
-            value = parse_price(text)
-            if action == "pp":
-                await db.update_product(pid, price=value)
-            else:
-                await db.update_product(pid, price_large=value)
+        if action == "pp":
+            await db.update_product(pid, price=parse_price(text))
         elif action == "pn":
             parts = [x.strip() for x in text.split("|")]
             if not parts[0] or len(parts[0]) > 60:
@@ -402,7 +393,8 @@ async def cb_add_category(call: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AddProduct.name)
     await state.update_data(cid=int(call.data.split(":")[2]))
     await call.message.answer(
-        "✏️ Taom nomini yozing (lotinda). Masalan: <code>Tovuq lavash</code>\n"
+        "✏️ Taom nomini yozing (lotinda). Masalan: <code>Tovuq lavash (katta)</code>\n"
+        "Kichik va katta o'lcham — alohida taom sifatida qo'shiladi.\n"
         "Uch tilda: <code>Tovuq lavash | Товуқ лаваш | Лаваш с курицей</code>",
         reply_markup=CANCEL_KB,
     )
@@ -421,7 +413,7 @@ async def add_name(message: Message, state: FSMContext, db: Database, cfg: Confi
     await state.update_data(name_uz=parts[0], name_cyr=parts[1] if len(parts) > 1 else "",
                             name_ru=parts[2] if len(parts) > 2 else "")
     await state.set_state(AddProduct.price)
-    await message.answer("💰 Narxini yozing (kichik yoki yagona o'lcham).\nMasalan: <code>35000</code>. "
+    await message.answer("💰 Narxini yozing.\nMasalan: <code>35000</code>. "
                          "<code>-</code> — keyinroq kiritaman.", reply_markup=CANCEL_KB)
 
 
@@ -436,34 +428,16 @@ async def add_price(message: Message, state: FSMContext, db: Database, cfg: Conf
         await message.answer("❗ Raqam yozing, masalan <code>35000</code>.", reply_markup=CANCEL_KB)
         return
     await state.update_data(price=price)
-    if price is None:
-        await _finish_add(message, state, db, None)
-        return
-    await state.set_state(AddProduct.price_large)
-    await message.answer("💰 Katta o'lcham narxi bormi? Yozing yoki <code>-</code> (bitta o'lcham).",
-                         reply_markup=CANCEL_KB)
+    await _finish_add(message, state, db)
 
 
-@router.message(AddProduct.price_large, F.text)
-async def add_price_large(message: Message, state: FSMContext, db: Database, cfg: Config, bot: Bot) -> None:
-    if not await _guard_message(message, db, cfg, bot):
-        await state.clear()
-        return
-    try:
-        large = parse_price(message.text)
-    except ValueError:
-        await message.answer("❗ Raqam yoki <code>-</code> yozing.", reply_markup=CANCEL_KB)
-        return
-    await _finish_add(message, state, db, large)
-
-
-async def _finish_add(message: Message, state: FSMContext, db: Database, large: int | None) -> None:
+async def _finish_add(message: Message, state: FSMContext, db: Database) -> None:
     data = await state.get_data()
     await state.clear()
     cat = await db.category(data["cid"])
     pid = await db.add_product(
         category_id=data["cid"], name_uz=data["name_uz"], name_cyr=data["name_cyr"], name_ru=data["name_ru"],
-        img=cat["img"] if cat else "", price=data["price"], price_large=large,
+        img=cat["img"] if cat else "", price=data["price"],
     )
     view = await product_view(db, pid)
     await message.answer("✅ Taom qo'shildi! Xohlasangiz, rasmini ham yuklang.\n\n" + view[0], reply_markup=view[1])
