@@ -204,7 +204,7 @@
     const shop = state.shop;
     const open = shop.open;
     let html = '<header class="top"><div class="brand"><div class="logo"><img src="static/img/logo.webp" alt="Emir Food"></div><div>' +
-      '<div class="brand-name">EMIR <span>FOOD</span></div><div class="brand-sub">' + icon('location-dot') + ' Peshku · ' +
+      '<div class="brand-name">EMIR <span>FOOD</span></div><div class="brand-sub">' + icon('location-dot') + '<span>Peshku ·</span>' +
       (open ? '<span class="is-open">' + T('open_247') + '</span>' : '<span class="is-closed">' + T('closed_short') + '</span>') +
       '</div></div></div><div class="top-actions">' +
       '<button class="icon-btn" data-action="orders" aria-label="' + T('my_orders') + '">' + icon('receipt') + '</button>' +
