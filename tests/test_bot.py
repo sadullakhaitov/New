@@ -151,3 +151,15 @@ async def test_add_product(env):
     await dp.feed_update(bot, msg("-", ADMIN_ID))
     p = next(p for p in await db.products(cat["id"]) if p["name_uz"] == "Tovuq lavash")
     assert p["price"] == 38000 and p["price_large"] is None
+
+
+async def test_admin_orders_list(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    await db.create_order(user_id=CLIENT_ID, kind="pickup", name="Ali", phone="+998901234567", payment="cash",
+                          items=[{"id": 1, "name": "Fri", "size": "", "qty": 2, "price": 15000, "sum": 30000}],
+                          total=30000)
+    await dp.feed_update(bot, cb("a:orders", ADMIN_ID))
+    from aiogram.methods import EditMessageText
+    text = next(c.text for c in reversed(session.calls) if isinstance(c, EditMessageText))
+    assert "№1001" in text and "Bugun: <b>1</b> ta · 30 000" in text and "Fri ×2" in text

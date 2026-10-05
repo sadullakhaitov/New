@@ -63,6 +63,7 @@
     orders: null,
     sending: false,
     closedShown: false,
+    upsellAsked: false,
     errors: {},
   };
 
@@ -215,10 +216,11 @@
       '<div>' + icon('truck-fast') + '<span>' + esc(shop.zone) + ' · ' + T('free_from', { min: fmt(shop.min_order) }) + '</span></div></div>';
 
     if (cartCount() > 0) {
-      html += '<div class="bottom-bar" id="cart-bar"><button class="cta cart-bar" data-action="cart"><span class="info"><span>' +
+      html += '<div class="bottom-bar' + (state.barShown ? '' : ' appear') + '" id="cart-bar"><button class="cta cart-bar" data-action="cart"><span class="info"><span>' +
         T('in_cart', { n: cartCount() }) + '</span><b>' + money(cartTotal()) + '</b></span><span class="go">' + T('cart') + ' ' +
         icon('arrow-right') + '</span></button></div>';
     }
+    state.barShown = cartCount() > 0;
     return html;
   }
 
@@ -367,13 +369,16 @@
   }
 
   // ---------- pastki oynalar (sheet) ----------
-  function renderSheet() {
+  // animate=true — oyna birinchi marta ochilganda; keyingi qayta chizishlarda animatsiya takrorlanmaydi.
+  function renderSheet(animate) {
     const s = state.sheet;
     if (!s) { sheetRoot.innerHTML = ''; return; }
+    sheetRoot.className = animate ? '' : 'static';
     let inner = '';
     if (s.type === 'product') inner = productSheet(s);
     else if (s.type === 'lang') inner = langSheet();
     else if (s.type === 'closed') inner = closedSheet();
+    else if (s.type === 'upsell') inner = upsellSheet();
     sheetRoot.innerHTML = '<div class="overlay" data-action="close-sheet"></div>' + inner;
   }
 
@@ -400,15 +405,25 @@
       '<button data-action="sheet-dec" aria-label="' + T('less') + '">' + icon('minus') + '</button><output>' + s.qty + '</output>' +
       '<button class="plus" data-action="sheet-inc" aria-label="' + T('more') + '">' + icon('plus') + '</button></div></div>';
 
-    const up = state.shop.upsell_id && state.products.get(state.shop.upsell_id);
-    if (up && up.available && up.id !== p.id) {
-      html += '<button class="upsell-toggle" data-action="sheet-upsell" aria-pressed="' + !!s.upsell + '">' + img(up.img) +
-        '<span class="txt"><b>' + T('upsell_q', { name: esc(up.name) }) + '</b><span>+' + money(up.price) + '</span></span>' +
-        '<span class="box">' + icon('check') + '</span></button>';
-    }
-    const total = unitPrice(p, s.size) * s.qty + (s.upsell && up ? up.price : 0);
+    const total = unitPrice(p, s.size) * s.qty;
     html += '</div></div><div class="bottom-bar sheet-bar"><button class="cta" data-action="sheet-add">' + T('add_to_cart') + ' · ' + money(total) + '</button></div>';
     return html;
+  }
+
+  function upsellProduct() {
+    const up = state.shop && state.shop.upsell_id && state.products.get(state.shop.upsell_id);
+    return up && up.available ? up : null;
+  }
+
+  function upsellSheet() {
+    const up = upsellProduct();
+    if (!up) return '';
+    return '<div class="sheet small" role="dialog" aria-modal="true" aria-label="' + esc(T('upsell_q', { name: up.name })) + '"><div class="grabber"></div>' +
+      '<div class="upsell-art">' + img(up.img) + '</div>' +
+      '<h2 class="display">' + esc(T('upsell_q', { name: up.name })) + '</h2>' +
+      '<div class="pill"><em>+' + money(up.price) + '</em></div>' +
+      '<button class="cta" data-action="upsell-yes">' + icon('plus') + ' ' + T('upsell_yes') + '</button>' +
+      '<button class="link-btn" data-action="upsell-no">' + T('upsell_no') + '</button></div>';
   }
 
   function langSheet() {
@@ -428,18 +443,31 @@
       '<a class="link-btn" href="tel:' + esc(state.shop.phone.replace(/\s/g, '')) + '">' + icon('phone') + ' ' + esc(state.shop.phone) + '</a></div>';
   }
 
+  let closingTimer = null;
   function openSheet(sheet) {
+    clearTimeout(closingTimer);
     state.sheet = sheet;
-    renderSheet();
+    renderSheet(true);
     document.body.style.overflow = 'hidden';
     syncBackButton();
   }
-  function closeSheet() {
+  function closeSheet(after) {
     state.sheet = null;
-    renderSheet();
     document.body.style.overflow = '';
     syncBackButton();
+    if (!sheetRoot.firstChild || reducedMotion()) {
+      sheetRoot.innerHTML = '';
+      if (after) after();
+      return;
+    }
+    sheetRoot.className = 'closing';
+    clearTimeout(closingTimer);
+    closingTimer = setTimeout(() => {
+      if (!state.sheet) { sheetRoot.innerHTML = ''; sheetRoot.className = ''; }
+      if (after) after();
+    }, 220);
   }
+  const reducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ---------- render va navigatsiya ----------
   function render() {
@@ -450,18 +478,20 @@
     if (state.view === 'home') observeSections();
   }
 
-  function go(view) {
+  function go(view, isBack) {
     state.view = view;
     state.errors = {};
+    app.classList.remove('enter-fwd', 'enter-back');
     render();
     window.scrollTo(0, 0);
+    void app.offsetWidth; // animatsiyani qayta ishga tushirish
+    app.classList.add(isBack ? 'enter-back' : 'enter-fwd');
   }
 
   function back() {
     if (state.sheet) return closeSheet();
-    if (state.view === 'checkout') return go('cart');
-    if (state.view === 'success') return go('home');
-    if (state.view !== 'home') return go('home');
+    if (state.view === 'checkout') return go('cart', true);
+    if (state.view !== 'home') return go('home', true);
   }
 
   function syncBackButton() {
@@ -495,6 +525,11 @@
     toastEl.className = 'show' + (isError ? ' error' : '');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { toastEl.className = ''; }, 2600);
+  }
+
+  function popBadge(id) {
+    const badge = document.querySelector('.card[data-id="' + id + '"] .badge-qty');
+    if (badge) badge.classList.add('pop');
   }
 
   function bumpCart() {
@@ -589,6 +624,13 @@
     if (!tg || !tg.initData) { toast(T('open_in_tg'), true); return; }
     const err = validate();
     if (err) { render(); toast(err, true); haptic('error'); return; }
+    // Savatda fri bo'lmasa — buyurtmadan oldin bir marta taklif qilinadi.
+    const up = upsellProduct();
+    if (up && !state.upsellAsked && !state.cart.some((l) => l.id === up.id)) {
+      state.upsellAsked = true;
+      openSheet({ type: 'upsell' });
+      return;
+    }
     state.sending = true;
     render();
     const f = state.form;
@@ -606,6 +648,7 @@
     state.sending = false;
     if (res.ok) {
       state.lastOrder = res.order;
+      state.upsellAsked = false;
       state.cart = [];
       saveCart();
       store.set('ef_address', f.address);
@@ -674,7 +717,7 @@
     const id = el.dataset.id ? Number(el.dataset.id) : null;
     switch (action) {
       case 'back': back(); break;
-      case 'home': go('home'); break;
+      case 'home': go('home', true); break;
       case 'cart': go('cart'); break;
       case 'orders': state.orders = null; go('orders'); loadOrders(); break;
       case 'lang': openSheet({ type: 'lang' }); break;
@@ -693,31 +736,31 @@
       }
       case 'open': {
         const p = state.products.get(id);
-        if (p) openSheet({ type: 'product', id, size: p.price_large != null ? 'large' : 'small', qty: 1, upsell: false });
+        if (p) openSheet({ type: 'product', id, size: p.price_large != null ? 'large' : 'small', qty: 1 });
         break;
       }
       case 'quick-add': {
         const p = state.products.get(id);
         if (!p) break;
-        if (p.price_large != null) { openSheet({ type: 'product', id, size: 'large', qty: 1, upsell: false }); break; }
+        if (p.price_large != null) { openSheet({ type: 'product', id, size: 'large', qty: 1 }); break; }
         addToCart(id, 'small', 1);
         render();
         bumpCart();
+        popBadge(id);
         toast(T('added', { name: p.name }));
         break;
       }
-      case 'size': state.sheet.size = el.dataset.size; haptic('light'); renderSheet(); break;
-      case 'sheet-inc': state.sheet.qty = Math.min(state.sheet.qty + 1, 50); haptic('light'); renderSheet(); break;
-      case 'sheet-dec': state.sheet.qty = Math.max(state.sheet.qty - 1, 1); haptic('light'); renderSheet(); break;
-      case 'sheet-upsell': state.sheet.upsell = !state.sheet.upsell; haptic('light'); renderSheet(); break;
+      case 'size': state.sheet.size = el.dataset.size; haptic('light'); renderSheet(false); break;
+      case 'sheet-inc': state.sheet.qty = Math.min(state.sheet.qty + 1, 50); haptic('light'); renderSheet(false); break;
+      case 'sheet-dec': state.sheet.qty = Math.max(state.sheet.qty - 1, 1); haptic('light'); renderSheet(false); break;
       case 'sheet-add': {
         const s = state.sheet;
         const p = state.products.get(s.id);
         addToCart(s.id, s.size, s.qty);
-        if (s.upsell && state.shop.upsell_id) addToCart(state.shop.upsell_id, 'small', 1);
         closeSheet();
         render();
         bumpCart();
+        popBadge(s.id);
         toast(T('added', { name: p ? p.name : '' }));
         break;
       }
@@ -729,6 +772,13 @@
       case 'contact': requestContact(); break;
       case 'location': requestLocation(); break;
       case 'submit': submitOrder(); break;
+      case 'upsell-yes': {
+        const up = upsellProduct();
+        if (up) addToCart(up.id, 'small', 1);
+        closeSheet(() => { render(); submitOrder(); });
+        break;
+      }
+      case 'upsell-no': closeSheet(() => submitOrder()); break;
       case 'copy': copyCard(); break;
       case 'repeat': repeatOrder(id); break;
       default: break;

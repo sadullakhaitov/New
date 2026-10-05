@@ -292,6 +292,17 @@ class Database:
         )
         return [self._order_row(r) for r in rows]
 
+    async def recent_orders(self, limit: int = 10) -> list[dict[str, Any]]:
+        rows = await self._fetchall("SELECT * FROM orders ORDER BY id DESC LIMIT ?", (limit,))
+        return [self._order_row(r) for r in rows]
+
+    async def orders_summary(self, since_iso: str) -> tuple[int, int]:
+        """since_iso dan beri buyurtmalar soni va umumiy summasi."""
+        row = await self._fetchone(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS s FROM orders WHERE created_at >= ?", (since_iso,)
+        )
+        return int(row["n"]), int(row["s"])
+
     # ---------- zaxira ----------
     async def export_json(self) -> bytes:
         data = {"exported_at": now_iso()}

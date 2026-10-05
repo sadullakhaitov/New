@@ -114,6 +114,7 @@ async def main_panel(db: Database) -> tuple[str, InlineKeyboardMarkup]:
     markup = kb(
         [("🍔 Menyu va narxlar", "a:menu"), ("➕ Taom qo'shish", "a:add")],
         [("🔒 Do'kon holati", "a:shop"), ("💳 Karta", "a:card")],
+        [("📦 Buyurtmalar", "a:orders")],
         [("💰 Minimal summa", "a:min"), ("💾 Zaxira nusxa", "a:backup")],
     )
     return text, markup
@@ -514,6 +515,37 @@ async def cb_close(call: CallbackQuery, db: Database, state: FSMContext) -> None
 async def cb_open(call: CallbackQuery, db: Database) -> None:
     await db.set_setting("closed_until", "")
     await cb_shop(call, db)
+
+
+# ---------- buyurtmalar ----------
+@admin_calls.callback_query(F.data == "a:orders")
+async def cb_orders(call: CallbackQuery, db: Database) -> None:
+    now = datetime.now(TASHKENT_TZ)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    n_today, s_today = await db.orders_summary(today.isoformat(timespec="seconds"))
+    n_week, s_week = await db.orders_summary((today - timedelta(days=6)).isoformat(timespec="seconds"))
+    lines = [
+        "📦 <b>Buyurtmalar</b>",
+        f"Bugun: <b>{n_today}</b> ta · {format_sum(s_today)} so'm",
+        f"Oxirgi 7 kun: <b>{n_week}</b> ta · {format_sum(s_week)} so'm",
+        "",
+    ]
+    orders = await db.recent_orders(10)
+    if not orders:
+        lines.append("Hali buyurtmalar yo'q.")
+    for o in orders:
+        when = datetime.fromisoformat(o["created_at"]).strftime("%d.%m %H:%M")
+        kind = "🚚" if o["kind"] == "delivery" else "🏃"
+        pay = "💵" if o["payment"] == "cash" else "💳"
+        items = ", ".join(f"{i['name']}{' (' + ('katta' if i['size'] == 'large' else 'kichik') + ')' if i.get('size') else ''} ×{i['qty']}"
+                          for i in o["items"])
+        lines.append(f"<b>№{o['id']}</b> · {when} {kind}{pay} · <b>{format_sum(o['total'])}</b>\n"
+                     f"👤 {escape(o['name'])}, {escape(o['phone'])}\n{escape(items)}\n")
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:3990] + "…"
+    await _edit(call, text, kb([("🔄 Yangilash", "a:orders")], [("⬅️ Orqaga", BACK_MAIN)]))
+    await call.answer()
 
 
 # ---------- karta, minimal summa, zaxira ----------

@@ -254,14 +254,6 @@ textarea.input { height: auto; min-height: 76px; padding: 14px 16px; resize: non
 .qty-row .stepper button { width: 44px; height: 44px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); }
 .qty-row .stepper button.plus { background: var(--yellow); color: var(--bg); border: 0; }
 .qty-row output { min-width: 32px; font-size: 18px; }
-.upsell-toggle { display: flex; align-items: center; gap: 12px; min-height: 64px; border-radius: 18px; padding: 8px 14px 8px 8px; background: var(--surface); border: 2px dashed var(--line); text-align: left; width: 100%; }
-.upsell-toggle[aria-pressed="true"] { border: 2px solid var(--yellow); }
-.upsell-toggle img { width: 52px; height: 42px; object-fit: contain; }
-.upsell-toggle .txt { flex: 1; display: flex; flex-direction: column; }
-.upsell-toggle .txt b { font-weight: 800; font-size: 14px; }
-.upsell-toggle .txt span { font-size: 12px; font-weight: 700; color: var(--muted); }
-.upsell-toggle .box { width: 28px; height: 28px; border-radius: 9px; border: 2px solid #5A544D; display: grid; place-items: center; color: transparent; font-size: 14px; }
-.upsell-toggle[aria-pressed="true"] .box { background: var(--yellow); border-color: var(--yellow); color: var(--bg); }
 .sheet-bar { z-index: 42; }
 
 .big-ico { width: 84px; height: 84px; border-radius: 50%; background: var(--yellow-dark); color: var(--yellow); display: grid; place-items: center; font-size: 36px; margin-top: 6px; }
@@ -274,6 +266,50 @@ textarea.input { height: auto; min-height: 76px; padding: 14px 16px; resize: non
 .lang-list button { height: 56px; border-radius: 16px; background: var(--surface-2); font-weight: 800; font-size: 16px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; }
 .lang-list button[aria-pressed="true"] { background: var(--yellow); color: var(--bg); }
 .link-btn { min-height: 44px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 700; font-size: 14px; text-decoration: none; }
+
+/* fri taklifi (buyurtma oldidan) */
+.upsell-art { width: 150px; height: 120px; border-radius: 50%; background: var(--yellow-dark); display: grid; place-items: center; margin-top: 4px; }
+.upsell-art img { width: 130px; height: 104px; object-fit: contain; animation: wiggle 2.4s ease-in-out infinite; }
+@keyframes wiggle { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg) scale(1.04); } }
+.sheet.small .link-btn { justify-content: center; width: 100%; font-size: 15px; }
+
+/* ---------- silliq o'tishlar ---------- */
+:root { --ease: cubic-bezier(.22, .8, .26, 1); }
+button, .chip, .mini, .pay, .size { transition: transform .14s var(--ease), background-color .2s, color .2s, border-color .2s, opacity .2s; }
+button:active:not(:disabled), .mini:active { transform: scale(.96); }
+.cta:active:not(:disabled) { transform: scale(.98); }
+
+/* sahifalar almashganda */
+#app.enter-fwd > :not(.bottom-bar) { animation: in-fwd .34s var(--ease) both; }
+#app.enter-back > :not(.bottom-bar) { animation: in-back .34s var(--ease) both; }
+#app.enter-fwd > :nth-child(2), #app.enter-back > :nth-child(2) { animation-delay: .03s; }
+#app.enter-fwd > :nth-child(3), #app.enter-back > :nth-child(3) { animation-delay: .06s; }
+#app.enter-fwd > :nth-child(n+4):not(.bottom-bar), #app.enter-back > :nth-child(n+4):not(.bottom-bar) { animation-delay: .09s; }
+#app.enter-fwd > .bottom-bar, #app.enter-back > .bottom-bar { animation: bar-in .4s var(--ease) .08s both; }
+@keyframes in-fwd { from { opacity: 0; transform: translateX(28px); } }
+@keyframes in-back { from { opacity: 0; transform: translateX(-28px); } }
+@keyframes bar-in { from { opacity: 0; transform: translate(-50%, 24px); } }
+
+/* savat paneli birinchi marta paydo bo'lganda */
+.bottom-bar.appear { animation: bar-in .4s var(--ease) both; }
+.badge-qty.pop { animation: badge-pop .45s var(--ease); }
+@keyframes badge-pop { 0% { transform: scale(.4); } 60% { transform: scale(1.25); } 100% { transform: scale(1); } }
+
+/* pastki oynalar ochilish/yopilishi */
+.sheet { animation-duration: .34s; animation-timing-function: var(--ease); }
+.sheet-bar { animation: bar-in .34s var(--ease) both; }
+#sheet-root.static .overlay, #sheet-root.static .sheet, #sheet-root.static .sheet-bar { animation: none; }
+#sheet-root.closing .overlay { animation: fade-out .22s ease forwards; }
+#sheet-root.closing .sheet { animation: down .22s ease-in forwards; }
+#sheet-root.closing .sheet-bar { animation: bar-out .2s ease-in forwards; }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes down { to { transform: translate(-50%, 100%); } }
+@keyframes bar-out { to { opacity: 0; transform: translate(-50%, 40px); } }
+.sheet-hero img { animation: hero-in .5s var(--ease) .05s both; }
+@keyframes hero-in { from { opacity: 0; transform: rotate(-20deg) scale(.7) translateY(20px); } }
+#sheet-root.static .sheet-hero img { animation: none; }
+.card-img img { transition: transform .3s var(--ease); }
+.card:active .card-img img { transform: scale(1.06) rotate(-3deg); }
 
 /* toast */
 #toast { position: fixed; left: 50%; top: 16px; transform: translate(-50%, -150%); z-index: 60; max-width: calc(100% - 32px); background: var(--text); color: var(--bg); padding: 12px 18px; border-radius: 14px; font-weight: 800; font-size: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, .4); transition: transform .3s cubic-bezier(.2, .9, .3, 1); text-align: center; }
