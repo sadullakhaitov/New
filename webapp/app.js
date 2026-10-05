@@ -354,7 +354,8 @@
     if (state.orders == null) return '<p class="hint">' + icon('spinner', 'spin') + ' ' + T('loading') + '</p>';
     if (!state.orders.length) return '<p class="hint">' + T('no_orders') + '</p>';
     return '<div class="lines">' + state.orders.map((o) =>
-      '<div class="order"><div class="info"><div class="top-line"><b>№ ' + o.id + '</b><small>' + orderDate(o.created_at) + '</small></div>' +
+      '<div class="order"><div class="info"><div class="top-line"><b>№ ' + o.id + '</b><small>' + orderDate(o.created_at) + '</small>' +
+      '<span class="status st-' + esc(o.status || 'new') + '">' + T('st_' + (o.status || 'new')) + '</span></div>' +
       '<span>' + esc(orderItems(o)) + '</span><em>' + money(o.total) + '</em></div>' +
       '<button class="repeat-btn" data-action="repeat" data-id="' + o.id + '">' + icon('rotate-right') + ' ' + T('repeat') + '</button></div>'
     ).join('') + '</div>';

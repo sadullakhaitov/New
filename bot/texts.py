@@ -65,12 +65,22 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "📞 {phone}\n📍 {address}\n🕒 Ежедневно, 24/7\n🚚 Доставка бесплатно — {zone}, от {min} сум",
     },
     "order_confirm": {
-        "uz": "✅ <b>Buyurtmangiz qabul qilindi!</b> №{id}\n\n{lines}\n\n<b>Jami: {total} so'm</b>\n{kind}\n{payment}\n\n"
-              "Tez orada siz bilan bog'lanamiz. Yoqimli ishtaha! 😋",
-        "cyr": "✅ <b>Буюртмангиз қабул қилинди!</b> №{id}\n\n{lines}\n\n<b>Жами: {total} сўм</b>\n{kind}\n{payment}\n\n"
-               "Тез орада сиз билан боғланамиз. Ёқимли иштаҳа! 😋",
-        "ru": "✅ <b>Ваш заказ принят!</b> №{id}\n\n{lines}\n\n<b>Итого: {total} сум</b>\n{kind}\n{payment}\n\n"
-              "Скоро мы с вами свяжемся. Приятного аппетита! 😋",
+        "uz": "📨 <b>Buyurtmangiz yuborildi!</b> №{id}\n\n{lines}\n\n<b>Jami: {total} so'm</b>\n{kind}\n{payment}\n\n"
+              "Xodimlarimiz tasdiqlashi bilan shu yerga xabar keladi.",
+        "cyr": "📨 <b>Буюртмангиз юборилди!</b> №{id}\n\n{lines}\n\n<b>Жами: {total} сўм</b>\n{kind}\n{payment}\n\n"
+               "Ходимларимиз тасдиқлаши билан шу ерга хабар келади.",
+        "ru": "📨 <b>Ваш заказ отправлен!</b> №{id}\n\n{lines}\n\n<b>Итого: {total} сум</b>\n{kind}\n{payment}\n\n"
+              "Как только сотрудники подтвердят заказ, здесь придёт сообщение.",
+    },
+    "order_accepted": {
+        "uz": "✅ <b>Buyurtmangiz №{id} qabul qilindi!</b>\nTayyorlashni boshladik. Yoqimli ishtaha! 😋",
+        "cyr": "✅ <b>Буюртмангиз №{id} қабул қилинди!</b>\nТайёрлашни бошладик. Ёқимли иштаҳа! 😋",
+        "ru": "✅ <b>Ваш заказ №{id} принят!</b>\nУже готовим. Приятного аппетита! 😋",
+    },
+    "order_canceled": {
+        "uz": "❌ <b>Buyurtmangiz №{id} bekor qilindi.</b>\nSavollar bo'lsa, qo'ng'iroq qiling: {phone}",
+        "cyr": "❌ <b>Буюртмангиз №{id} бекор қилинди.</b>\nСаволлар бўлса, қўнғироқ қилинг: {phone}",
+        "ru": "❌ <b>Ваш заказ №{id} отменён.</b>\nЕсли есть вопросы, позвоните: {phone}",
     },
     "kind_delivery": {
         "uz": "🚚 Yetkazib berish (bepul)",

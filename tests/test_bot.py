@@ -14,7 +14,7 @@ from aiogram.types import (
 
 from bot import access
 from bot.config import Config
-from bot.handlers import admin, user
+from bot.handlers import admin, orders, user
 
 ADMIN_ID, CLIENT_ID, GROUP_ID = 10, 20, -1001
 
@@ -55,6 +55,7 @@ def _dispatcher() -> Dispatcher:
     if _DP is None:
         _DP = Dispatcher(storage=MemoryStorage())
         _DP.include_router(admin.router)
+        _DP.include_router(orders.router)
         _DP.include_router(user.router)
     return _DP
 
@@ -83,8 +84,9 @@ def msg(text: str, user_id: int, chat_id: int | None = None, chat_type: str = "p
     return Update(update_id=next(_uid), message=m)
 
 
-def cb(data: str, user_id: int) -> Update:
-    m = Message(message_id=1, date=datetime.now(), chat=Chat(id=user_id, type="private"), text="x")
+def cb(data: str, user_id: int, chat_id: int | None = None) -> Update:
+    chat = Chat(id=chat_id, type="supergroup") if chat_id else Chat(id=user_id, type="private")
+    m = Message(message_id=1, date=datetime.now(), chat=chat, text="x")
     q = CallbackQuery(id=str(next(_uid)), from_user=User(id=user_id, is_bot=False, first_name="Ali"),
                       chat_instance="c", data=data, message=m)
     return Update(update_id=next(_uid), callback_query=q)
@@ -162,3 +164,48 @@ async def test_admin_orders_list(env):
     from aiogram.methods import EditMessageText
     text = next(c.text for c in reversed(session.calls) if isinstance(c, EditMessageText))
     assert "№1001" in text and "Bugun: <b>1</b> ta · 30 000" in text and "Fri ×2" in text
+
+
+async def _new_order(db):
+    await db.upsert_user(CLIENT_ID, "Ali")
+    await db.set_user_lang(CLIENT_ID, "ru")
+    return await db.create_order(
+        user_id=CLIENT_ID, kind="pickup", name="Ali", phone="+998901234567", payment="cash",
+        items=[{"id": 1, "name": "Fri", "size": "", "qty": 1, "price": 15000, "sum": 15000}], total=15000)
+
+
+async def test_order_accept_from_group(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    oid = await _new_order(db)
+    await dp.feed_update(bot, cb(f"o:acc:{oid}", CLIENT_ID + 5, GROUP_ID))
+    order = await db.order(oid)
+    assert order["status"] == "accepted" and order["status_by"] == "Ali"
+    from aiogram.methods import EditMessageText
+    edit = next(c for c in reversed(session.calls) if isinstance(c, EditMessageText))
+    assert "QABUL QILINDI" in edit.text and edit.reply_markup.inline_keyboard[0][0].callback_data == f"o:rej:{oid}"
+    assert any("принят" in t for t in session.texts())  # mijozga o'z tilida
+
+    # Ikkinchi marta bosilsa — holat o'zgarmaydi, mijozga qayta xabar bormaydi
+    n = len(session.texts())
+    await dp.feed_update(bot, cb(f"o:acc:{oid}", CLIENT_ID + 6, GROUP_ID))
+    assert len(session.texts()) == n
+
+
+async def test_order_cancel_needs_confirmation(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    oid = await _new_order(db)
+    await dp.feed_update(bot, cb(f"o:rej:{oid}", CLIENT_ID + 5, GROUP_ID))
+    assert (await db.order(oid))["status"] == "new"  # hali tasdiqlanmagan
+    await dp.feed_update(bot, cb(f"o:rejy:{oid}", CLIENT_ID + 5, GROUP_ID))
+    assert (await db.order(oid))["status"] == "canceled"
+    assert any("отменён" in t and "+998 95 289 85 55" in t for t in session.texts())
+
+
+async def test_order_buttons_only_in_staff_group(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    oid = await _new_order(db)
+    await dp.feed_update(bot, cb(f"o:acc:{oid}", CLIENT_ID, -999))
+    assert (await db.order(oid))["status"] == "new"

@@ -511,9 +511,10 @@ async def cb_orders(call: CallbackQuery, db: Database) -> None:
         when = datetime.fromisoformat(o["created_at"]).strftime("%d.%m %H:%M")
         kind = "🚚" if o["kind"] == "delivery" else "🏃"
         pay = "💵" if o["payment"] == "cash" else "💳"
+        state = {"accepted": " ✅", "canceled": " ❌"}.get(o.get("status") or "", " 🆕")
         items = ", ".join(f"{i['name']}{' (' + ('katta' if i['size'] == 'large' else 'kichik') + ')' if i.get('size') else ''} ×{i['qty']}"
                           for i in o["items"])
-        lines.append(f"<b>№{o['id']}</b> · {when} {kind}{pay} · <b>{format_sum(o['total'])}</b>\n"
+        lines.append(f"<b>№{o['id']}</b>{state} · {when} {kind}{pay} · <b>{format_sum(o['total'])}</b>\n"
                      f"👤 {escape(o['name'])}, {escape(o['phone'])}\n{escape(items)}\n")
     text = "\n".join(lines)
     if len(text) > 4000:

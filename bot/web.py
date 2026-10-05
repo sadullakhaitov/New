@@ -21,7 +21,7 @@ from .core import (
     norm_lang, normalize_phone, shop_status,
 )
 from .db import Database
-from .notify import group_order_text, user_order_text
+from .notify import group_order_keyboard, group_order_text, user_order_text
 
 log = logging.getLogger(__name__)
 
@@ -201,6 +201,7 @@ def _public_order(order: dict[str, Any], lang: str) -> dict[str, Any]:
         "kind": order["kind"],
         "payment": order["payment"],
         "total": order["total"],
+        "status": order.get("status") or "new",
         "items": [
             {
                 "id": line["id"],
@@ -306,7 +307,7 @@ async def _notify_staff(app: web.Application, order: dict[str, Any], username: s
     text = group_order_text(order, username)
     for chat_id in targets:
         try:
-            msg = await bot.send_message(chat_id, text)
+            msg = await bot.send_message(chat_id, text, reply_markup=group_order_keyboard(order))
             if order.get("lat") is not None:
                 await bot.send_location(chat_id, order["lat"], order["lon"], reply_to_message_id=msg.message_id)
         except TelegramAPIError as exc:

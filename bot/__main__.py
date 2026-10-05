@@ -14,7 +14,7 @@ from aiohttp import web
 
 from .config import load_config
 from .db import Database
-from .handlers import admin, user
+from .handlers import admin, orders, user
 from .seed import seed, split_sizes
 from .web import create_app
 
@@ -42,6 +42,7 @@ async def main() -> None:
     bot = Bot(cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage(), db=db, cfg=cfg)
     dp.include_router(admin.router)
+    dp.include_router(orders.router)
     dp.include_router(user.router)
 
     app = create_app(cfg, db, bot)

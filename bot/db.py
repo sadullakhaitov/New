@@ -75,6 +75,14 @@ CREATE INDEX IF NOT EXISTS orders_user ON orders(user_id, id);
 SQLITE_SCHEMA = _TABLES.format(pk="INTEGER PRIMARY KEY AUTOINCREMENT", real="REAL")
 POSTGRES_SCHEMA = _TABLES.format(pk="SERIAL PRIMARY KEY", real="DOUBLE PRECISION")
 
+# Buyurtma holati: new — yangi, accepted — qabul qilindi, canceled — bekor qilindi.
+ORDER_EXTRA_COLUMNS = {
+    "status": "TEXT NOT NULL DEFAULT 'new'",
+    "status_by": "TEXT NOT NULL DEFAULT ''",
+    "status_at": "TEXT NOT NULL DEFAULT ''",
+}
+ORDER_TRANSITIONS = {"accepted": ("new",), "canceled": ("new", "accepted")}
+
 PRODUCT_FIELDS = {
     "category_id", "name_uz", "name_cyr", "name_ru", "desc_uz", "desc_cyr", "desc_ru",
     "img", "price", "price_large", "is_active", "is_hit", "sort",
@@ -124,6 +132,7 @@ class Database:
             self._pool = await asyncpg.create_pool(asyncpg_dsn(self.target), min_size=1, max_size=5, statement_cache_size=0)
             async with self._pool.acquire() as conn:
                 await conn.execute(POSTGRES_SCHEMA)
+            await self._migrate()
             return
         if self.target != ":memory:":
             Path(self.target).parent.mkdir(parents=True, exist_ok=True)
@@ -133,6 +142,23 @@ class Database:
         await self._sqlite.execute("PRAGMA journal_mode = WAL")
         await self._sqlite.executescript(SQLITE_SCHEMA)
         await self._sqlite.commit()
+        await self._migrate()
+
+    async def _columns(self, table: str) -> set[str]:
+        if self.is_pg:
+            rows = await self._fetchall(
+                "SELECT column_name AS name FROM information_schema.columns WHERE table_name = ?", (table,)
+            )
+        else:
+            rows = await self._fetchall(f"PRAGMA table_info({table})")
+        return {r["name"] for r in rows}
+
+    async def _migrate(self) -> None:
+        """Eski bazaga yangi ustunlarni qo'shadi."""
+        have = await self._columns("orders")
+        for name, ddl in ORDER_EXTRA_COLUMNS.items():
+            if name not in have:
+                await self._execute(f"ALTER TABLE orders ADD COLUMN {name} {ddl}")
 
     async def close(self) -> None:
         if self._pool is not None:
@@ -291,6 +317,19 @@ class Database:
             "SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, limit)
         )
         return [self._order_row(r) for r in rows]
+
+    async def set_order_status(self, order_id: int, status: str, by: str) -> dict[str, Any] | None:
+        """Holatni o'zgartiradi; ruxsat etilmagan o'tish (masalan, ikki marta bosilsa) bo'lsa None."""
+        allowed = ORDER_TRANSITIONS[status]
+        marks = ", ".join("?" * len(allowed))
+        row = await self._fetchone(
+            f"UPDATE orders SET status = ?, status_by = ?, status_at = ? "
+            f"WHERE id = ? AND status IN ({marks}) RETURNING id",
+            (status, by[:64], now_iso(), order_id, *allowed),
+        )
+        if not self.is_pg:
+            await self._sqlite.commit()
+        return await self.order(order_id) if row else None
 
     async def recent_orders(self, limit: int = 10) -> list[dict[str, Any]]:
         rows = await self._fetchall("SELECT * FROM orders ORDER BY id DESC LIMIT ?", (limit,))
