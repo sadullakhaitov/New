@@ -37,6 +37,7 @@ class Config:
     data_dir: Path
     superadmins: frozenset[int]
     database_url: str = ""
+    keepalive: bool = False
 
     @property
     def database(self) -> str:
@@ -93,4 +94,15 @@ def load_config() -> Config:
         data_dir=data_dir,
         superadmins=_parse_ids(os.environ.get("SUPERADMIN_IDS", "")),
         database_url=os.environ.get("DATABASE_URL", "").strip(),
+        keepalive=keepalive_enabled(os.environ, base_url),
     )
+
+
+def keepalive_enabled(env, base_url: str) -> bool:
+    """O'zini uyg'otib turish: Render'da (RENDER=true) avtomatik yoqiladi, KEEPALIVE=0 bilan o'chiriladi."""
+    flag = (env.get("KEEPALIVE") or "").strip().lower()
+    if flag in {"0", "false", "no", "off"}:
+        return False
+    if not base_url.startswith("https://"):
+        return False
+    return flag in {"1", "true", "yes", "on"} or (env.get("RENDER") or "").lower() == "true"

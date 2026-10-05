@@ -83,8 +83,12 @@ Dastur `https://....trycloudflare.com` ko'rinishidagi manzil beradi. Uni `.env` 
 5. **Create Web Service** tugmasini bosing. 2–3 daqiqadan keyin logda `Webhook rejimi ishga tushdi` yozuvi chiqadi.
 6. Telegram'da botga `/start` deb yozing.
 
-### C. Uxlab qolmasligi uchun (ixtiyoriy)
-https://cron-job.org saytida bepul vazifa yarating: har 10 daqiqada `https://<sizning-manzil>.onrender.com/healthz` manzilini ochsin. Shunda Mini App doim tez ochiladi. Render bepul tarifda oyiga 750 soat beradi, bu bitta serverning butun oy uzluksiz ishlashi uchun yetadi.
+### C. Server uxlab qolmasligi
+Render bepul serverni 15 daqiqa jimlikdan keyin uxlatadi. Bot Render'da ishga tushganda buni o'zi oldini oladi: har 10 daqiqada o'zining `/healthz` manziliga so'rov yuboradi (logda `Keepalive yoqildi` yozuvi chiqadi). O'chirish kerak bo'lsa — `KEEPALIVE=0`.
+
+Zaxira sifatida https://cron-job.org da bepul vazifa ham qo'ying: har 10 daqiqada `https://<sizning-manzil>.onrender.com/healthz`. Server biror sabab bilan qayta ishga tushsa, u darhol uyg'otadi.
+
+Render bepul tarifda oyiga 750 soat beradi — bitta server butun oy uzluksiz ishlashiga yetadi. Shu akkauntda boshqa bepul server ham ishlasa, soatlar bo'linadi va oy oxirida yetmay qolishi mumkin.
 
 ### Yangilanishlar
 GitHub'dagi branchga yangi kod push qilinsa, Render uni o'zi qayta o'rnatadi. Ma'lumotlar Neon'da bo'lgani uchun hech narsa o'chmaydi.

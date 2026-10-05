@@ -20,6 +20,23 @@ from .web import create_app
 
 log = logging.getLogger("emirfood")
 
+KEEPALIVE_INTERVAL = 10 * 60  # Render bepul server 15 daqiqa jimlikdan keyin uxlaydi
+
+
+async def keep_awake(url: str) -> None:
+    """Har 10 daqiqada o'zining ommaviy manziliga so'rov yuboradi, shunda Render serverni uxlatmaydi."""
+    from aiohttp import ClientSession, ClientTimeout
+
+    async with ClientSession(timeout=ClientTimeout(total=30)) as session:
+        while True:
+            await asyncio.sleep(KEEPALIVE_INTERVAL)
+            try:
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        log.warning("Keepalive: %s javob berdi %s", url, resp.status)
+            except Exception as exc:  # tarmoq xatosi botni to'xtatmasligi kerak
+                log.warning("Keepalive xatosi: %s", exc)
+
 
 async def setup_bot_ui(bot: Bot, webapp_url: str | None) -> None:
     await bot.set_my_commands([BotCommand(command="start", description="Boshlash / Начать")])
@@ -63,6 +80,10 @@ async def main() -> None:
     if not cfg.webapp_url:
         log.warning("BASE_URL https:// emas — Telegram Mini App ochilmaydi. README dagi ko'rsatmaga qarang.")
 
+    keepalive_task = None
+    if cfg.keepalive:
+        keepalive_task = asyncio.create_task(keep_awake(cfg.base_url + "/healthz"))
+        log.info("Keepalive yoqildi: har %s daqiqada %s/healthz", KEEPALIVE_INTERVAL // 60, cfg.base_url)
     try:
         await setup_bot_ui(bot, cfg.webapp_url)
         if cfg.mode == "webhook":
@@ -79,6 +100,8 @@ async def main() -> None:
             log.info("Polling rejimi ishga tushdi")
             await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
+        if keepalive_task:
+            keepalive_task.cancel()
         await runner.cleanup()
         await bot.session.close()
         await db.close()

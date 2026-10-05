@@ -93,3 +93,14 @@ def test_localized_fallback():
     row = {"name_uz": "Tovuq lavash", "name_cyr": "", "name_ru": ""}
     assert localized(row, "name", "cyr") == "Товуқ лаваш"
     assert localized(row, "name", "ru") == "Tovuq lavash"
+
+
+def test_keepalive_enabled():
+    from bot.config import keepalive_enabled
+
+    url = "https://emirfood.onrender.com"
+    assert keepalive_enabled({"RENDER": "true"}, url)               # Render'da avtomatik
+    assert not keepalive_enabled({"RENDER": "true", "KEEPALIVE": "0"}, url)
+    assert keepalive_enabled({"KEEPALIVE": "1"}, url)               # boshqa hostingda qo'lda yoqiladi
+    assert not keepalive_enabled({}, url)                           # o'z kompyuterida — o'chiq
+    assert not keepalive_enabled({"RENDER": "true"}, "")            # manzil bo'lmasa — o'chiq
