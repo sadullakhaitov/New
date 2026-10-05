@@ -60,7 +60,7 @@ async def main() -> None:
     if (photos := await apply_photos(db)):
         log.info("%s ta taomga surat qo'yildi", photos)
 
-    bot = Bot(cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot = Bot(cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True))
     dp = Dispatcher(storage=MemoryStorage(), db=db, cfg=cfg)
     dp.include_router(admin.router)
     dp.include_router(banners.router)

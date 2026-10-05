@@ -7,7 +7,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.base import BaseSession
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.methods import GetChatMember, SendMessage, TelegramMethod
+from aiogram.methods import DeleteMessage, GetChatMember, SendMessage, SendPhoto, TelegramMethod
 from aiogram.types import (
     CallbackQuery, Chat, ChatMemberAdministrator, ChatMemberMember, Message, Update, User,
 )
@@ -29,6 +29,9 @@ class FakeSession(BaseSession):
         if isinstance(method, SendMessage):
             return Message(message_id=len(self.calls), date=datetime.now(),
                            chat=Chat(id=method.chat_id, type="private"), text=method.text)
+        if isinstance(method, SendPhoto):
+            return Message(message_id=len(self.calls), date=datetime.now(),
+                           chat=Chat(id=method.chat_id, type="supergroup"), caption=method.caption)
         if isinstance(method, GetChatMember):
             u = User(id=method.user_id, is_bot=False, first_name="x")
             if method.user_id == ADMIN_ID:
@@ -307,3 +310,25 @@ async def test_admin_delivery_zone(env):
     assert (s["shop_lat"], s["shop_lon"], s["delivery_radius_km"]) == ("40.123456", "64.654321", "2.5")
     await dp.feed_update(bot, cb("a:zone:off", ADMIN_ID))
     assert await db.get_setting("delivery_radius_km") == ""
+
+
+async def test_receipt_photo_merges_with_order(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    from aiogram.types import PhotoSize
+    from bot.staff import notify_staff
+    oid = await db.create_order(user_id=CLIENT_ID, kind="pickup", name="Ali", phone="+998901234567", payment="card",
+                                items=[{"id": 1, "name": "Fri", "size": "", "qty": 1, "price": 15000, "sum": 15000}],
+                                total=15000)
+    await notify_staff(bot, db, None, await db.order(oid), "")
+    old_mid = (await db.order(oid))["group_message_id"]
+    m = Message(message_id=next(_uid), date=datetime.now(), chat=Chat(id=CLIENT_ID, type="private"),
+                from_user=User(id=CLIENT_ID, is_bot=False, first_name="C"),
+                photo=[PhotoSize(file_id="small", file_unique_id="s", width=90, height=90),
+                       PhotoSize(file_id="big", file_unique_id="b", width=900, height=900)])
+    await dp.feed_update(bot, Update(update_id=next(_uid), message=m))
+    sent = next(c for c in session.calls if isinstance(c, SendPhoto))
+    assert sent.chat_id == GROUP_ID and sent.photo == "big" and f"№{oid}" in sent.caption
+    assert sent.reply_markup is not None  # Qabul/Bekor tugmalari chek bilan birga
+    assert any(isinstance(c, DeleteMessage) and c.message_id == old_mid for c in session.calls)
+    assert "Chek qabul qilindi" in session.texts()[-1]

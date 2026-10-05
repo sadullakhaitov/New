@@ -65,12 +65,12 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "📞 {phone}\n📍 {address}\n🕒 Ежедневно, 24/7\n🚚 Доставка бесплатно — {zone}, от {min} сум",
     },
     "order_confirm": {
-        "uz": "📨 <b>Buyurtmangiz yuborildi!</b> №{id}\n\n{lines}\n\n<b>Jami: {total} so'm</b>\n{kind}\n{payment}\n\n"
-              "Xodimlarimiz tasdiqlashi bilan shu yerga xabar keladi.",
-        "cyr": "📨 <b>Буюртмангиз юборилди!</b> №{id}\n\n{lines}\n\n<b>Жами: {total} сўм</b>\n{kind}\n{payment}\n\n"
-               "Ходимларимиз тасдиқлаши билан шу ерга хабар келади.",
-        "ru": "📨 <b>Ваш заказ отправлен!</b> №{id}\n\n{lines}\n\n<b>Итого: {total} сум</b>\n{kind}\n{payment}\n\n"
-              "Как только сотрудники подтвердят заказ, здесь придёт сообщение.",
+        "uz": "📨 <b>Buyurtmangiz yuborildi!</b>  №{id}\n➖➖➖➖➖➖➖➖\n{lines}\n\n💰 <b>Jami: {total} so'm</b>\n"
+              "➖➖➖➖➖➖➖➖\n{kind}\n{payment}\n\n⏳ Xodimlarimiz tasdiqlashi bilan shu yerga xabar keladi.",
+        "cyr": "📨 <b>Буюртмангиз юборилди!</b>  №{id}\n➖➖➖➖➖➖➖➖\n{lines}\n\n💰 <b>Жами: {total} сўм</b>\n"
+               "➖➖➖➖➖➖➖➖\n{kind}\n{payment}\n\n⏳ Ходимларимиз тасдиқлаши билан шу ерга хабар келади.",
+        "ru": "📨 <b>Ваш заказ отправлен!</b>  №{id}\n➖➖➖➖➖➖➖➖\n{lines}\n\n💰 <b>Итого: {total} сум</b>\n"
+              "➖➖➖➖➖➖➖➖\n{kind}\n{payment}\n\n⏳ Как только сотрудники подтвердят заказ, здесь придёт сообщение.",
     },
     "order_accepted": {
         "uz": "✅ <b>Buyurtmangiz №{id} qabul qilindi!</b>\nTayyorlashni boshladik. Yoqimli ishtaha! 😋",
@@ -102,9 +102,9 @@ TEXTS: dict[str, dict[str, str]] = {
               "📸 После оплаты отправьте фото чека в этот чат.",
     },
     "receipt_ok": {
-        "uz": "🧾 Chek qabul qilindi (buyurtma №{id}). Rahmat!",
-        "cyr": "🧾 Чек қабул қилинди (буюртма №{id}). Раҳмат!",
-        "ru": "🧾 Чек получен (заказ №{id}). Спасибо!",
+        "uz": "🧾 <b>Chek qabul qilindi!</b>\nU buyurtma №{id} bilan birga xodimlarga yuborildi. Rahmat!",
+        "cyr": "🧾 <b>Чек қабул қилинди!</b>\nУ буюртма №{id} билан бирга ходимларга юборилди. Раҳмат!",
+        "ru": "🧾 <b>Чек получен!</b>\nОн отправлен сотрудникам вместе с заказом №{id}. Спасибо!",
     },
     "receipt_no_order": {
         "uz": "Avval buyurtma bering, so'ng chekni yuboring 🙂",
