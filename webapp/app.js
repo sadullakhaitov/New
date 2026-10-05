@@ -46,6 +46,12 @@
     return code && code.startsWith('ru') ? 'ru' : 'uz';
   }
 
+  function initialTheme() {
+    const saved = store.get('ef_theme', null);
+    if (saved === 'light' || saved === 'dark') return saved;
+    return tg && tg.colorScheme === 'light' ? 'light' : 'dark';
+  }
+
   // ---------- holat ----------
   const state = {
     lang: initialLang(),
@@ -63,6 +69,9 @@
     orders: null,
     sending: false,
     closedShown: false,
+    banners: [],
+    bannerIndex: 0,
+    theme: initialTheme(),
     upsellAsked: false,
     errors: {},
   };
@@ -89,6 +98,7 @@
     if (!data.ok) return false;
     state.shop = data.shop;
     state.categories = data.categories;
+    state.banners = data.banners || [];
     state.products = new Map();
     data.categories.forEach((c) => c.products.forEach((p) => state.products.set(p.id, Object.assign({ cat: c.id }, p))));
     if (!state.activeCat && data.categories.length) state.activeCat = data.categories[0].id;
@@ -151,7 +161,7 @@
   const ICON_FALLBACK = {
     plus: '+', minus: '−', 'trash-can': '×', xmark: '×', check: '✓', 'circle-check': '✓', 'chevron-left': '‹',
     'arrow-right': '→', receipt: '≡', globe: '◍', 'rotate-right': '↻', copy: '⧉', moon: '☾', fire: '★',
-    'location-dot': '•', 'location-crosshairs': '◎', 'paper-plane': '➤', spinner: '…', 'person-walking': '',
+    'location-dot': '•', sun: '☀',  'location-crosshairs': '◎', 'paper-plane': '➤', spinner: '…', 'person-walking': '',
     'truck-fast': '', phone: '☎', clock: '◷', store: '⌂',
   };
   const icon = (name, extra) => '<i class="fa-solid fa-' + name + (extra ? ' ' + extra : '') + '" data-fb="' +
@@ -195,13 +205,14 @@
       (open ? '<span class="is-open">' + T('open_247') + '</span>' : '<span class="is-closed">' + T('closed_short') + '</span>') +
       '</div></div></div><div class="top-actions">' +
       '<button class="icon-btn" data-action="orders" aria-label="' + T('my_orders') + '">' + icon('receipt') + '</button>' +
-      '<button class="icon-btn" data-action="lang" aria-label="' + T('language') + '">' + icon('globe') + ' ' + LANG_SHORT[state.lang] + '</button>' +
+      '<button class="icon-btn" data-action="theme" aria-label="' + T(state.theme === 'dark' ? 'theme_light' : 'theme_dark') + '">' +
+      icon(state.theme === 'dark' ? 'sun' : 'moon') + '</button>' +
+      '<button class="icon-btn" data-action="lang" aria-label="' + T('language') + '">' + LANG_SHORT[state.lang] + '</button>' +
       '</div></header>';
 
     html += '<section class="hero"><h1 class="display">' + T('hero_title') + '</h1><p>' + T('hero_sub') + '</p></section>';
     html += kindSwitch();
-    html += '<div class="promo"><img src="static/img/burger.svg" alt=""><span class="tag">' + T('promo_tag') + '</span>' +
-      '<div class="title">' + T('promo_title') + '</div><div class="sub">' + T('promo_sub', { min: fmt(shop.min_order) }) + '</div></div>';
+    html += renderBanners();
 
     html += '<div class="chips-wrap"><nav class="chips" aria-label="' + T('categories') + '">' + state.categories.map((c) =>
       '<button class="chip" data-action="cat" data-id="' + c.id + '" aria-current="' + (c.id === state.activeCat) + '">' +
@@ -233,6 +244,79 @@
     return kind ? { base: m[1], label: m[2], kind } : { base: name, label: '', kind: '' };
   }
   const sizeTag = (sz) => (sz.kind ? ' <span class="size-tag ' + sz.kind + '">' + esc(sz.label) + '</span>' : '');
+
+  // ---------- banner karuseli ----------
+  const SLIDE_MS = 5000;
+  function renderBanners() {
+    const list = state.banners;
+    if (!list.length) return '';
+    if (state.bannerIndex >= list.length) state.bannerIndex = 0;
+    const slides = list.map((b, i) =>
+      '<div class="slide ' + esc(b.theme) + (i === state.bannerIndex ? ' active' : '') + '" data-action="banner" data-i="' + i + '"' +
+      ' role="group" aria-roledescription="slide" aria-label="' + (i + 1) + ' / ' + list.length + '">' +
+      (b.img ? img(b.img) : '') +
+      (b.tag ? '<span class="tag">' + esc(b.tag) + '</span>' : '') +
+      '<div class="title">' + esc(b.title) + '</div>' +
+      (b.text ? '<div class="sub">' + esc(b.text) + '</div>' : '') +
+      (b.product_id ? '<span class="go">' + T('order_now') + ' ' + icon('arrow-right') + '</span>' : '') +
+      '</div>').join('');
+    const dots = list.length > 1 ? '<div class="dots" role="tablist">' + list.map((b, i) =>
+      '<button class="timing" data-action="banner-dot" data-i="' + i + '" aria-label="' + (i + 1) + '" aria-current="' + (i === state.bannerIndex) + '"></button>').join('') + '</div>' : '';
+    return '<section class="carousel" aria-roledescription="carousel" aria-label="' + T('news') + '"><div class="track" id="banner-track">' +
+      slides + '</div>' + dots + '</section>';
+  }
+
+  let bannerTimer = null;
+  let bannerPausedUntil = 0;
+  let scrollTimer = null;
+  function slideWidth(track) {
+    const first = track.firstElementChild;
+    return first ? first.getBoundingClientRect().width + 12 : track.clientWidth;
+  }
+  function setActiveSlide(i) {
+    state.bannerIndex = i;
+    document.querySelectorAll('#banner-track .slide').forEach((el, j) => el.classList.toggle('active', j === i));
+    document.querySelectorAll('.dots button').forEach((el, j) => {
+      el.setAttribute('aria-current', String(j === i));
+      el.classList.remove('timing');
+      if (j === i && Date.now() >= bannerPausedUntil) { void el.offsetWidth; el.classList.add('timing'); }
+    });
+  }
+  function goSlide(i, smooth) {
+    const track = document.getElementById('banner-track');
+    if (!track) return;
+    const n = state.banners.length;
+    i = ((i % n) + n) % n;
+    track.scrollTo({ left: i * slideWidth(track), behavior: smooth && !reducedMotion() ? 'smooth' : 'auto' });
+    setActiveSlide(i);
+  }
+  function setupCarousel() {
+    const track = document.getElementById('banner-track');
+    if (!track) return;
+    document.documentElement.style.setProperty('--slide-ms', SLIDE_MS + 'ms');
+    track.scrollLeft = state.bannerIndex * slideWidth(track);
+    const pause = () => {
+      bannerPausedUntil = Date.now() + 7000;
+      document.querySelectorAll('.dots button').forEach((el) => el.classList.remove('timing'));
+    };
+    track.addEventListener('pointerdown', pause, { passive: true });
+    track.addEventListener('touchstart', pause, { passive: true });
+    track.addEventListener('scroll', () => {
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        const i = Math.round(track.scrollLeft / slideWidth(track));
+        if (i !== state.bannerIndex) setActiveSlide(i);
+      }, 90);
+    }, { passive: true });
+    clearInterval(bannerTimer);
+    if (state.banners.length > 1) {
+      bannerTimer = setInterval(() => {
+        if (document.hidden || state.sheet || Date.now() < bannerPausedUntil) return;
+        if (!document.getElementById('banner-track')) return;
+        goSlide(state.bannerIndex + 1, true);
+      }, SLIDE_MS);
+    }
+  }
 
   function renderCard(p) {
     const sz = splitSize(p.name);
@@ -487,7 +571,7 @@
     const views = { home: renderHome, cart: renderCart, checkout: renderCheckout, success: renderSuccess, orders: renderOrders };
     app.innerHTML = (views[state.view] || renderHome)();
     syncBackButton();
-    if (state.view === 'home') observeSections();
+    if (state.view === 'home') { observeSections(); setupCarousel(); }
   }
 
   function go(view, isBack) {
@@ -734,6 +818,23 @@
       case 'cart': go('cart'); break;
       case 'orders': state.orders = null; go('orders'); loadOrders(); break;
       case 'lang': openSheet({ type: 'lang' }); break;
+      case 'theme':
+        state.theme = state.theme === 'dark' ? 'light' : 'dark';
+        store.set('ef_theme', state.theme);
+        applyTheme();
+        haptic('light');
+        render();
+        break;
+      case 'banner': {
+        const b = state.banners[Number(el.dataset.i)];
+        const p = b && b.product_id && state.products.get(b.product_id);
+        if (p) openSheet({ type: 'product', id: p.id, size: p.price_large != null ? 'large' : 'small', qty: 1 });
+        break;
+      }
+      case 'banner-dot':
+        bannerPausedUntil = Date.now() + 7000;
+        goSlide(Number(el.dataset.i), true);
+        break;
       case 'set-lang': setLang(el.dataset.lang); break;
       case 'close-sheet': closeSheet(); break;
       case 'kind':
@@ -817,15 +918,27 @@
     if (state.errors[field]) { state.errors[field] = false; e.target.classList.remove('invalid'); }
   });
 
+  // ---------- kunduzgi / tungi rejim ----------
+  function applyTheme() {
+    document.documentElement.setAttribute('data-theme', state.theme);
+    const bg = state.theme === 'light' ? '#F7F2EA' : '#121110';
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', bg);
+    if (!tg) return;
+    try {
+      tg.setHeaderColor(bg);
+      tg.setBackgroundColor(bg);
+      if (tg.isVersionAtLeast('7.10')) tg.setBottomBarColor(bg);
+    } catch (e) { /* eski versiyalar */ }
+  }
+
   // ---------- ishga tushirish ----------
   async function boot() {
+    applyTheme();
     if (tg) {
       tg.ready();
       tg.expand();
       try {
-        tg.setHeaderColor('#121110');
-        tg.setBackgroundColor('#121110');
-        if (tg.isVersionAtLeast('7.10')) tg.setBottomBarColor('#121110');
         if (tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes();
       } catch (e) { /* eski versiyalar */ }
       tg.BackButton.onClick(back);

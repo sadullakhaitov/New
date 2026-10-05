@@ -14,7 +14,7 @@ from aiogram.types import (
 
 from bot import access
 from bot.config import Config
-from bot.handlers import admin, orders, user
+from bot.handlers import admin, banners, orders, user
 
 ADMIN_ID, CLIENT_ID, GROUP_ID = 10, 20, -1001
 
@@ -55,6 +55,7 @@ def _dispatcher() -> Dispatcher:
     if _DP is None:
         _DP = Dispatcher(storage=MemoryStorage())
         _DP.include_router(admin.router)
+        _DP.include_router(banners.router)
         _DP.include_router(orders.router)
         _DP.include_router(user.router)
     return _DP
@@ -209,3 +210,26 @@ async def test_order_buttons_only_in_staff_group(env):
     oid = await _new_order(db)
     await dp.feed_update(bot, cb(f"o:acc:{oid}", CLIENT_ID, -999))
     assert (await db.order(oid))["status"] == "new"
+
+
+async def test_banner_admin_flow(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    assert len(await db.banners()) == 3
+    await dp.feed_update(bot, cb("b:new", ADMIN_ID))
+    new = (await db.banners())[-1]
+    assert new["is_active"] == 0
+    await dp.feed_update(bot, cb(f"b:f:title:{new['id']}", ADMIN_ID))
+    await dp.feed_update(bot, msg("Ikkinchi lavash -20% | Иккинчи лаваш -20% | Второй лаваш -20%", ADMIN_ID))
+    await dp.feed_update(bot, cb(f"b:t:{new['id']}", ADMIN_ID))
+    await dp.feed_update(bot, cb(f"b:th:{new['id']}", ADMIN_ID))
+    await dp.feed_update(bot, cb(f"b:up:{new['id']}", ADMIN_ID))
+    b = await db.banner(new["id"])
+    assert b["title_ru"] == "Второй лаваш -20%" and b["is_active"] == 1 and b["theme"] == "red"
+    assert [x["id"] for x in await db.banners()][2] == new["id"]  # bir pog'ona yuqoriga
+
+    # Oddiy foydalanuvchi banner tugmalarini bosolmaydi, lekin til tugmasi ishlayveradi
+    await dp.feed_update(bot, cb(f"b:t:{new['id']}", CLIENT_ID))
+    assert (await db.banner(new["id"]))["is_active"] == 1
+    await dp.feed_update(bot, cb("lang:ru", CLIENT_ID))
+    assert (await db.user(CLIENT_ID))["lang"] == "ru"

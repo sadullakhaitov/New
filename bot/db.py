@@ -71,6 +71,23 @@ CREATE TABLE IF NOT EXISTS orders (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS orders_user ON orders(user_id, id);
+CREATE TABLE IF NOT EXISTS banners (
+    id         {pk},
+    tag_uz     TEXT NOT NULL DEFAULT '',
+    tag_cyr    TEXT NOT NULL DEFAULT '',
+    tag_ru     TEXT NOT NULL DEFAULT '',
+    title_uz   TEXT NOT NULL DEFAULT '',
+    title_cyr  TEXT NOT NULL DEFAULT '',
+    title_ru   TEXT NOT NULL DEFAULT '',
+    text_uz    TEXT NOT NULL DEFAULT '',
+    text_cyr   TEXT NOT NULL DEFAULT '',
+    text_ru    TEXT NOT NULL DEFAULT '',
+    img        TEXT NOT NULL DEFAULT '',
+    theme      TEXT NOT NULL DEFAULT 'yellow',
+    product_id INTEGER,
+    is_active  INTEGER NOT NULL DEFAULT 1,
+    sort       INTEGER NOT NULL DEFAULT 0
+);
 """
 SQLITE_SCHEMA = _TABLES.format(pk="INTEGER PRIMARY KEY AUTOINCREMENT", real="REAL")
 POSTGRES_SCHEMA = _TABLES.format(pk="SERIAL PRIMARY KEY", real="DOUBLE PRECISION")
@@ -87,8 +104,12 @@ PRODUCT_FIELDS = {
     "category_id", "name_uz", "name_cyr", "name_ru", "desc_uz", "desc_cyr", "desc_ru",
     "img", "price", "price_large", "is_active", "is_hit", "sort",
 }
+BANNER_FIELDS = {
+    "tag_uz", "tag_cyr", "tag_ru", "title_uz", "title_cyr", "title_ru", "text_uz", "text_cyr", "text_ru",
+    "img", "theme", "product_id", "is_active", "sort",
+}
 CATEGORY_FIELDS = {"slug", "name_uz", "name_cyr", "name_ru", "img", "sort"}
-BACKUP_TABLES = ("settings", "categories", "products", "users", "orders")
+BACKUP_TABLES = ("settings", "categories", "products", "users", "orders", "banners")
 
 FIRST_ORDER_ID = 1001
 
@@ -265,6 +286,32 @@ class Database:
 
     async def delete_product(self, product_id: int) -> None:
         await self._execute("DELETE FROM products WHERE id = ?", (product_id,))
+
+    # ---------- bannerlar ----------
+    async def banners(self, active_only: bool = False) -> list[dict[str, Any]]:
+        where = " WHERE is_active = 1" if active_only else ""
+        return await self._fetchall(f"SELECT * FROM banners{where} ORDER BY sort, id")
+
+    async def banner(self, banner_id: int) -> dict[str, Any] | None:
+        return await self._fetchone("SELECT * FROM banners WHERE id = ?", (banner_id,))
+
+    async def add_banner(self, **fields: Any) -> int:
+        if set(fields) - BANNER_FIELDS:
+            raise ValueError(f"Noma'lum maydonlar: {set(fields) - BANNER_FIELDS}")
+        if "sort" not in fields:
+            row = await self._fetchone("SELECT COALESCE(MAX(sort), 0) + 10 AS s FROM banners")
+            fields["sort"] = row["s"]
+        return await self._insert("banners", fields)
+
+    async def update_banner(self, banner_id: int, **fields: Any) -> None:
+        if set(fields) - BANNER_FIELDS:
+            raise ValueError(f"Noma'lum maydonlar: {set(fields) - BANNER_FIELDS}")
+        if fields:
+            sets = ", ".join(f"{k} = ?" for k in fields)
+            await self._execute(f"UPDATE banners SET {sets} WHERE id = ?", (*fields.values(), banner_id))
+
+    async def delete_banner(self, banner_id: int) -> None:
+        await self._execute("DELETE FROM banners WHERE id = ?", (banner_id,))
 
     # ---------- foydalanuvchilar ----------
     async def upsert_user(self, user_id: int, first_name: str = "", username: str = "") -> dict[str, Any]:

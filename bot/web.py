@@ -17,7 +17,7 @@ from aiohttp import web
 from .access import group_id
 from .config import WEBAPP_DIR, Config
 from .core import (
-    LANGS, OrderError, build_order_lines, guess_lang, is_available, localized,
+    LANGS, OrderError, build_order_lines, format_sum, guess_lang, is_available, localized,
     norm_lang, normalize_phone, shop_status,
 )
 from .db import Database
@@ -66,6 +66,16 @@ async def _json(request: web.Request) -> dict[str, Any]:
     return body
 
 
+BANNER_THEMES = ("yellow", "red", "dark")
+CURRENCY = {"uz": "so'm", "cyr": "сўм", "ru": "сум"}
+
+
+def _fill(text: str, values: dict[str, str]) -> str:
+    for key, value in values.items():
+        text = text.replace("{" + key + "}", value)
+    return text
+
+
 def _text(value: Any, limit: int) -> str:
     return " ".join(str(value or "").split())[:limit]
 
@@ -81,24 +91,27 @@ async def health(request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
 
-def image_url(product: dict[str, Any], fallback: str) -> str:
-    """Admin yuklagan rasm Telegramda saqlanadi (img = "tg:<file_id>") va /img/p/<id> orqali beriladi."""
-    img = product.get("img") or ""
+def image_url(row: dict[str, Any], fallback: str, kind: str = "p") -> str:
+    """Admin yuklagan rasm Telegramda saqlanadi (img = "tg:<file_id>") va /img/<p|b>/<id> orqali beriladi."""
+    img = row.get("img") or ""
     if img.startswith("tg:"):
         version = hashlib.sha1(img.encode()).hexdigest()[:8]
-        return f"img/p/{product['id']}?v={version}"
+        return f"img/{kind}/{row['id']}?v={version}"
     return img or fallback
 
 
-async def product_image(request: web.Request) -> web.Response:
+async def stored_image(request: web.Request) -> web.Response:
+    """Taom (p) yoki banner (b) uchun Telegramda saqlangan rasm."""
+    kind = request.match_info["kind"]
     try:
         pid = int(request.match_info["pid"])
     except ValueError:
         raise web.HTTPNotFound() from None
-    product = await request.app[DB].product(pid)
-    if product is None or not (product["img"] or "").startswith("tg:"):
+    db = request.app[DB]
+    row = await (db.product(pid) if kind == "p" else db.banner(pid))
+    if row is None or not (row["img"] or "").startswith("tg:"):
         raise web.HTTPNotFound()
-    file_id = product["img"][3:]
+    file_id = row["img"][3:]
     cache = request.app[IMG_CACHE]
     data = cache.get(file_id)
     if data is None:
@@ -148,6 +161,23 @@ async def api_menu(request: web.Request) -> web.Response:
                 "name": localized(cat, "name", lang), "img": cat["img"], "products": items,
             })
     upsell = settings.get("upsell_product_id", "")
+    by_id = {p["id"]: p for p in products}
+    banners = []
+    for b in await db.banners(active_only=True):
+        linked = by_id.get(b["product_id"]) if b["product_id"] else None
+        if b["product_id"] and linked is None:
+            continue  # ulangan taom yashirilgan yoki o'chirilgan
+        price = f"{format_sum(linked['price'])} {CURRENCY[lang]}" if linked and linked["price"] is not None else ""
+        fill = {"min": format_sum(int(settings.get("min_order") or 0)), "price": price}
+        banners.append({
+            "id": b["id"],
+            "tag": localized(b, "tag", lang),
+            "title": localized(b, "title", lang),
+            "text": _fill(localized(b, "text", lang), fill),
+            "img": image_url(b, image_url(linked, "") if linked else "static/img/burger.svg", "b"),
+            "theme": b["theme"] if b["theme"] in BANNER_THEMES else "yellow",
+            "product_id": linked["id"] if linked and is_available(linked) else None,
+        })
     data = {
         "ok": True,
         "shop": {
@@ -162,6 +192,7 @@ async def api_menu(request: web.Request) -> web.Response:
             "upsell_id": int(upsell) if upsell.isdigit() else None,
         },
         "categories": categories,
+        "banners": banners,
     }
     return web.json_response(data, headers={"Cache-Control": "no-store"})
 
@@ -328,6 +359,6 @@ def create_app(cfg: Config, db: Database, bot: Bot) -> web.Application:
     app.router.add_post("/api/lang", api_lang)
     app.router.add_get("/api/orders", api_orders)
     app.router.add_post("/api/order", api_order)
-    app.router.add_get("/img/p/{pid}", product_image)
+    app.router.add_get("/img/{kind:[pb]}/{pid}", stored_image)
     app.router.add_static("/static/", WEBAPP_DIR)
     return app

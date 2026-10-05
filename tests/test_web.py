@@ -164,3 +164,16 @@ async def test_sizes_split_into_separate_items(ctx):
     assert products["Go'shtli xot-dog"]["price"] == 25000  # bitta o'lchamli taom o'zgarmaydi
     assert len(products) == 20 + 7
     assert await split_sizes(ctx.db) == 0  # qayta ishga tushganda hech narsa qilmaydi
+
+
+async def test_menu_banners(ctx):
+    data = await (await ctx.client.get("/api/menu?lang=uz")).json()
+    banners = data["banners"]
+    assert [b["theme"] for b in banners] == ["yellow", "red", "dark"]
+    assert banners[0]["text"].startswith("50 000 so'm")
+    assert banners[1]["text"].startswith("50 000 so'm") and banners[1]["product_id"]
+    assert banners[2]["img"] == "static/img/hotdog-qazi.svg"
+    # Ulangan taom yashirilsa — banner ham chiqmaydi
+    await ctx.db.update_product(banners[1]["product_id"], is_active=0)
+    data = await (await ctx.client.get("/api/menu?lang=ru")).json()
+    assert len(data["banners"]) == 2 and data["banners"][1]["text"] == "Большой размер — 38 000 сум"

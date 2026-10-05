@@ -111,7 +111,7 @@ async def main_panel(db: Database) -> tuple[str, InlineKeyboardMarkup]:
     markup = kb(
         [("🍔 Menyu va narxlar", "a:menu"), ("➕ Taom qo'shish", "a:add")],
         [("🔒 Do'kon holati", "a:shop"), ("💳 Karta", "a:card")],
-        [("📦 Buyurtmalar", "a:orders")],
+        [("📦 Buyurtmalar", "a:orders"), ("🖼 Bannerlar", "b:list")],
         [("💰 Minimal summa", "a:min"), ("💾 Zaxira nusxa", "a:backup")],
     )
     return text, markup

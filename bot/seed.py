@@ -122,3 +122,39 @@ async def split_sizes(db: Database) -> int:
         count += 1
     await db.set_setting("migr_split_sizes", "1")
     return count
+
+
+# Bosh sahifadagi aylanib turadigan bannerlar. {min} — minimal summa, {price} — ulangan taom narxi.
+BANNERS = [
+    {
+        "tag": ("DOIMIY TAKLIF", "ДОИМИЙ ТАКЛИФ", "ВСЕГДА"),
+        "title": ("Bepul yetkazib berish", "Бепул етказиб бериш", "Бесплатная доставка"),
+        "text": ("{min} so'mdan · Peshku markazi bo'ylab", "{min} сўмдан · Пешку маркази бўйлаб", "От {min} сум · по центру Пешку"),
+        "img": "static/img/burger.svg", "theme": "yellow", "product": None,
+    },
+    {
+        "tag": ("HIT", "HIT", "ХИТ"),
+        "title": ("Emir lavash", "Эмир лаваш", "Эмир лаваш"),
+        "text": ("{price} · bir bosishda savatga", "{price} · бир босишда саватга", "{price} · в корзину в одно касание"),
+        "img": "", "theme": "red", "product": "Emir lavash",
+    },
+    {
+        "tag": ("KATTA PORSIYA", "КАТТА ПОРЦИЯ", "БОЛЬШАЯ ПОРЦИЯ"),
+        "title": ("Qazi xot-dog", "Қази хот-дог", "Хот-дог с казы"),
+        "text": ("Katta o'lchami — {price}", "Катта ўлчами — {price}", "Большой размер — {price}"),
+        "img": "", "theme": "dark", "product": "Qazi xot-dog (katta)",
+    },
+]
+
+
+async def seed_banners(db: Database) -> None:
+    """Boshlang'ich bannerlar faqat bir marta yoziladi (admin o'chirsa, qaytib kelmaydi)."""
+    if await db.get_setting("banners_seeded") == "1":
+        return
+    by_name = {p["name_uz"]: p["id"] for p in await db.products()}
+    for b in BANNERS:
+        fields = {}
+        for key in ("tag", "title", "text"):
+            fields[f"{key}_uz"], fields[f"{key}_cyr"], fields[f"{key}_ru"] = b[key]
+        await db.add_banner(**fields, img=b["img"], theme=b["theme"], product_id=by_name.get(b["product"]))
+    await db.set_setting("banners_seeded", "1")
