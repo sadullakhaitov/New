@@ -592,11 +592,13 @@
     renderSheet(true);
     document.body.style.overflow = 'hidden';
     syncBackButton();
+    updateToTop();
   }
   function closeSheet(after) {
     state.sheet = null;
     document.body.style.overflow = '';
     syncBackButton();
+    updateToTop();
     if (!sheetRoot.firstChild || reducedMotion()) {
       sheetRoot.innerHTML = '';
       if (after) after();
@@ -618,6 +620,30 @@
     app.innerHTML = (views[state.view] || renderHome)();
     syncBackButton();
     if (state.view === 'home') { observeSections(); setupCarousel(); }
+    updateToTop();
+  }
+
+  // ---------- «Tepaga» tugmasi: pastga tushganda chiqadi, bosilsa boshiga qaytaradi ----------
+  const toTop = document.getElementById('to-top');
+  function updateToTop() {
+    if (!toTop) return;
+    const show = window.scrollY > Math.max(480, window.innerHeight * 0.8) && !state.sheet;
+    toTop.classList.toggle('show', show);
+    toTop.tabIndex = show ? 0 : -1;
+    toTop.setAttribute('aria-label', T('to_top'));
+    // Pastda savat/tugma paneli bo'lsa, uning ustida turadi
+    toTop.classList.toggle('lifted', !!app.querySelector(':scope > .bottom-bar'));
+  }
+  let toTopRaf = 0;
+  window.addEventListener('scroll', () => {
+    if (toTopRaf) return;
+    toTopRaf = requestAnimationFrame(() => { toTopRaf = 0; updateToTop(); });
+  }, { passive: true });
+  if (toTop) {
+    toTop.addEventListener('click', () => {
+      haptic('light');
+      window.scrollTo({ top: 0, behavior: reducedMotion() ? 'auto' : 'smooth' });
+    });
   }
 
   function go(view, isBack) {
