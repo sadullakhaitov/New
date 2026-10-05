@@ -74,15 +74,17 @@ img { display: block; }
 
 /* header */
 .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.brand > div:last-child { min-width: 0; }
 .logo { width: 50px; height: 50px; flex-shrink: 0; filter: drop-shadow(0 3px 8px rgba(0, 0, 0, .35)); }
 .logo img { width: 50px; height: 50px; object-fit: contain; }
 .brand-name { font-family: var(--display); font-size: 22px; letter-spacing: 1px; line-height: 1; }
 .brand-name span { color: var(--accent-text); }
-.brand-sub { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 3px; white-space: nowrap; }
+.brand-sub { display: flex; flex-wrap: wrap; align-items: center; column-gap: 5px; row-gap: 1px; font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 3px; }
+.brand-sub > span { white-space: nowrap; }
 .brand-sub .is-open { color: var(--green); }
 .brand-sub .is-closed { color: var(--bad); }
-.top-actions { display: flex; gap: 8px; }
+.top-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .icon-btn { min-width: 44px; height: 44px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-weight: 800; font-size: 13px; }
 .icon-btn i { font-size: 16px; }
 
