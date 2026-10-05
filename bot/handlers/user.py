@@ -227,7 +227,7 @@ async def receipt(message: Message, db: Database, bot: Bot) -> None:
         await message.answer(t("receipt_no_order", lang))
         return
     # Avvalo kartaga to'lanadigan, bekor qilinmagan oxirgi buyurtma
-    order = next((o for o in orders if o["payment"] == "card" and o.get("status") != "canceled"), orders[0])
+    order = next((o for o in orders if o["payment"] in ("card", "later") and o.get("status") != "canceled"), orders[0])
     if message.photo:
         file_id, kind = message.photo[-1].file_id, "photo"
     else:

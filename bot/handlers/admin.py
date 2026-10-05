@@ -680,7 +680,7 @@ async def cb_orders(call: CallbackQuery, db: Database) -> None:
     for o in orders:
         when = datetime.fromisoformat(o["created_at"]).strftime("%d.%m %H:%M")
         kind = "🚚" if o["kind"] == "delivery" else "🏃"
-        pay = "💵" if o["payment"] == "cash" else "💳"
+        pay = {"cash": "💵", "card": "💳"}.get(o["payment"], "🤝")
         state = {"accepted": " ✅", "canceled": " ❌"}.get(o.get("status") or "", " 🆕")
         items = ", ".join(f"{i['name']}{' (' + ('katta' if i['size'] == 'large' else 'kichik') + ')' if i.get('size') else ''} ×{i['qty']}"
                           for i in o["items"])

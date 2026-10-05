@@ -333,3 +333,16 @@ async def test_receipt_joins_order_message(ctx):
     await ctx.db.set_order_status(oid, "accepted", "Xodim")
     await refresh_group_message(ctx.bot, ctx.db, await ctx.db.order(oid))
     assert ctx.bot.sent[-1][0] == "edit_caption" and "QABUL QILINDI" in ctx.bot.sent[-1][2]
+
+
+async def test_pay_after_receiving(ctx):
+    await verify(ctx.db, "+998901234567")
+    fri = await product_id(ctx.db, "Fri")
+    data = await (await ctx.client.post("/api/order", json=_fri_body(fri, payment="later"), headers=auth())).json()
+    assert data["ok"] and data["order"]["payment"] == "later"
+    group_text = next(t for k, c, t in ctx.bot.sent if k == "message" and c == -100500)
+    assert "buyurtmani olgandan keyin" in group_text
+    user_text = next(t for k, c, t in ctx.bot.sent if k == "message" and c == 777)
+    assert "olgandan keyin" in user_text and "1234 5678 8910 1112" in user_text
+    bad = await (await ctx.client.post("/api/order", json=_fri_body(fri, payment="bitcoin"), headers=auth())).json()
+    assert not bad.get("ok")
