@@ -190,7 +190,8 @@ async def test_photos_applied_to_both_sizes(ctx):
     assert products["Qazi xot-dog (kichik)"]["img"] == "static/img/photos/hotdog-qazi.webp"
     assert products["Kolbaski xot-dog"]["img"] == "static/img/photos/hotdog-kolbaski.webp"
     assert products["Suv"]["img"] == "static/img/photos/water.webp"
-    for name in ("burger", "doner", "xagi", "lavash", "lavash-tandir", "arab-kabob2", "cheeseburger",
+    assert products["Klab sendvich"]["img"] == "static/img/photos/club-sandwich.webp"
+    for name in ("burger", "doner", "xagi", "lavash", "lavash-tandir", "arab-kabob2", "cheeseburger", "longer", "club-sandwich",
                  "hotdog-classic", "hotdog-qazi", "hotdog-meat", "hotdog-kolbaski", "cola", "fanta", "water"):
         assert (await ctx.client.get(f"/static/img/photos/{name}.webp")).status == 200
     assert await apply_photos(ctx.db) == 0  # qayta ishga tushganda tegmaydi
@@ -205,6 +206,6 @@ async def test_new_photo_applied_after_old_migration(fresh_db):
     await db.update_product(pid, img="static/img/arab-kabob.svg")
     await db.set_setting("photos_applied", "")
     await db.set_setting("migr_photos_v1", "1")
-    assert await apply_photos(db) == 13  # arab kabob ×2, chizburger ×2, xot-doglar ×6, ichimliklar ×3
+    assert await apply_photos(db) == 15  # arab kabob, chizburger, xot-doglar, ichimliklar, longer, klab sendvich
     assert (await db.product(pid))["img"] == "static/img/photos/arab-kabob2.webp"
     assert await apply_photos(db) == 0

@@ -169,6 +169,7 @@ PHOTOS = {
     "Burger (kichik)": "burger", "Burger (katta)": "burger",
     "Arab kabob (kichik)": "arab-kabob2", "Arab kabob (katta)": "arab-kabob2",
     "Chizburger (kichik)": "cheeseburger", "Chizburger (katta)": "cheeseburger",
+    "Longer": "longer", "Klab sendvich": "club-sandwich",
     "Xot-dog Klassika (kichik)": "hotdog-classic", "Xot-dog Klassika (katta)": "hotdog-classic",
     "Qazi xot-dog (kichik)": "hotdog-qazi", "Qazi xot-dog (katta)": "hotdog-qazi",
     "Go'shtli xot-dog": "hotdog-meat",
