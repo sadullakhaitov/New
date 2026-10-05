@@ -5,6 +5,7 @@ None — narx hali kiritilmagan: menyuda "Tez orada" bo'lib turadi.
 """
 from __future__ import annotations
 
+from .core import localized
 from .db import Database
 
 DEFAULT_SETTINGS = {
@@ -83,3 +84,118 @@ async def seed(db: Database) -> None:
         )
         if uz == UPSELL_NAME:
             await db.set_setting("upsell_product_id", str(pid))
+
+
+SIZE_SUFFIX = {
+    "small": {"uz": " (kichik)", "cyr": " (кичик)", "ru": " (маленький)"},
+    "large": {"uz": " (katta)", "cyr": " (катта)", "ru": " (большой)"},
+}
+
+
+async def split_sizes(db: Database) -> int:
+    """Kichik/katta o'lchamli taomlarni ikkita alohida taomga ajratadi (bir marta ishlaydi).
+
+    "Qazi xot-dog" (28 000 / 38 000) -> "Qazi xot-dog (kichik)" 28 000 va "Qazi xot-dog (katta)" 38 000.
+    """
+    if await db.get_setting("migr_split_sizes") == "1":
+        return 0
+    count = 0
+    for p in await db.products():
+        if p["price_large"] is None:
+            continue
+        names = {lang: localized(p, "name", lang) for lang in ("uz", "cyr", "ru")}
+        await db.add_product(
+            category_id=p["category_id"],
+            name_uz=names["uz"] + SIZE_SUFFIX["large"]["uz"],
+            name_cyr=names["cyr"] + SIZE_SUFFIX["large"]["cyr"],
+            name_ru=names["ru"] + SIZE_SUFFIX["large"]["ru"],
+            desc_uz=p["desc_uz"], desc_cyr=p["desc_cyr"], desc_ru=p["desc_ru"],
+            img=p["img"], price=p["price_large"], is_active=p["is_active"], is_hit=p["is_hit"],
+            sort=p["sort"] + 5,
+        )
+        await db.update_product(
+            p["id"], price_large=None,
+            name_uz=names["uz"] + SIZE_SUFFIX["small"]["uz"],
+            name_cyr=names["cyr"] + SIZE_SUFFIX["small"]["cyr"],
+            name_ru=names["ru"] + SIZE_SUFFIX["small"]["ru"],
+        )
+        count += 1
+    await db.set_setting("migr_split_sizes", "1")
+    return count
+
+
+# Bosh sahifadagi aylanib turadigan bannerlar. {min} — minimal summa, {price} — ulangan taom narxi.
+BANNERS = [
+    {
+        "tag": ("DOIMIY TAKLIF", "ДОИМИЙ ТАКЛИФ", "ВСЕГДА"),
+        "title": ("Bepul yetkazib berish", "Бепул етказиб бериш", "Бесплатная доставка"),
+        "text": ("{min} so'mdan · Peshku markazi bo'ylab", "{min} сўмдан · Пешку маркази бўйлаб", "От {min} сум · по центру Пешку"),
+        "img": "static/img/burger.svg", "theme": "yellow", "product": None,
+    },
+    {
+        "tag": ("HIT", "HIT", "ХИТ"),
+        "title": ("Emir lavash", "Эмир лаваш", "Эмир лаваш"),
+        "text": ("{price} · bir bosishda savatga", "{price} · бир босишда саватга", "{price} · в корзину в одно касание"),
+        "img": "", "theme": "red", "product": "Emir lavash",
+    },
+    {
+        "tag": ("KATTA PORSIYA", "КАТТА ПОРЦИЯ", "БОЛЬШАЯ ПОРЦИЯ"),
+        "title": ("Qazi xot-dog", "Қази хот-дог", "Хот-дог с казы"),
+        "text": ("Katta o'lchami — {price}", "Катта ўлчами — {price}", "Большой размер — {price}"),
+        "img": "", "theme": "dark", "product": "Qazi xot-dog (katta)",
+    },
+]
+
+
+async def seed_banners(db: Database) -> None:
+    """Boshlang'ich bannerlar faqat bir marta yoziladi (admin o'chirsa, qaytib kelmaydi)."""
+    if await db.get_setting("banners_seeded") == "1":
+        return
+    by_name = {p["name_uz"]: p["id"] for p in await db.products()}
+    for b in BANNERS:
+        fields = {}
+        for key in ("tag", "title", "text"):
+            fields[f"{key}_uz"], fields[f"{key}_cyr"], fields[f"{key}_ru"] = b[key]
+        await db.add_banner(**fields, img=b["img"], theme=b["theme"], product_id=by_name.get(b["product"]))
+    await db.set_setting("banners_seeded", "1")
+
+
+# Haqiqiy taom suratlari (fon shaffof). Kichik va katta o'lchamga bir xil surat qo'yiladi.
+PHOTOS = {
+    "Lavash": "lavash",
+    "Tandir lavash": "lavash-tandir",
+    "Xagi (kichik)": "xagi", "Xagi (katta)": "xagi",
+    "Doner (kichik)": "doner", "Doner (katta)": "doner",
+    "Burger (kichik)": "burger", "Burger (katta)": "burger",
+    "Arab kabob (kichik)": "arab-kabob2", "Arab kabob (katta)": "arab-kabob2",
+    "Chizburger (kichik)": "cheeseburger", "Chizburger (katta)": "cheeseburger",
+    "Longer": "longer", "Klab sendvich": "club-sandwich",
+    "KFC (qanotcha, fele)": "kfc",
+    "Fri": "fries",
+    "Xot-dog Klassika (kichik)": "hotdog-classic", "Xot-dog Klassika (katta)": "hotdog-classic",
+    "Qazi xot-dog (kichik)": "hotdog-qazi", "Qazi xot-dog (katta)": "hotdog-qazi",
+    "Go'shtli xot-dog": "hotdog-meat",
+    "Kolbaski xot-dog": "hotdog-kolbaski",
+    "Coca-Cola": "cola", "Fanta": "fanta", "Suv": "water",
+}
+
+
+async def apply_photos(db: Database) -> int:
+    """Chizma rasmlarni suratlarga almashtiradi — har bir surat bir marta qo'yiladi.
+
+    Keyin ro'yxatga yangi surat qo'shilsa, faqat o'sha yangisi qo'yiladi. Admin yuklagan rasmlarga tegilmaydi.
+    """
+    done = set(filter(None, (await db.get_setting("photos_applied")).split(",")))
+    if await db.get_setting("migr_photos_v1") == "1":
+        done |= {"lavash", "lavash-tandir", "xagi", "doner", "burger"}  # avvalgi versiyada qo'yilganlar
+    todo = {name: photo for name, photo in PHOTOS.items() if photo not in done}
+    if not todo:
+        return 0
+    count = 0
+    for p in await db.products():
+        photo = todo.get(p["name_uz"])
+        if photo and (not p["img"] or p["img"].startswith("static/img/")):
+            await db.update_product(p["id"], img=f"static/img/photos/{photo}.webp")
+            count += 1
+    await db.set_setting("photos_applied", ",".join(sorted(done | set(todo.values()))))
+    return count

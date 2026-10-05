@@ -5,6 +5,8 @@ from datetime import datetime
 from html import escape
 from typing import Any
 
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
 from .core import format_sum, norm_lang
 from .texts import t
 
@@ -35,21 +37,53 @@ def group_order_text(order: dict[str, Any], username: str = "") -> str:
         f"🆕 <b>Yangi buyurtma №{order['id']}</b>  ·  {created}",
         "",
         f"👤 {who}",
-        f"📞 {escape(order['phone'])}",
+        f"📞 {escape(order['phone'])}" + (
+            " ✅ <i>Telegram orqali tasdiqlangan</i>" if order.get("phone_verified")
+            else " ⚠️ <i>qo'lda yozilgan, tasdiqlanmagan</i>"
+        ),
     ]
     if order["kind"] == "delivery":
         parts.append("🚚 <b>Yetkazib berish</b>")
         if order.get("address"):
             parts.append(f"📍 {escape(order['address'])}")
         if order.get("lat") is not None:
-            parts.append("🗺 Lokatsiya pastda 👇")
+            dist = order.get("distance_km")
+            parts.append("🗺 Lokatsiya pastda 👇" + (f"  ·  📏 {dist:.1f} km" if dist is not None else ""))
+        else:
+            parts.append("⚠️ Lokatsiya yuborilmagan — manzil hudud ichidaligini tekshiring")
     else:
         parts.append("🏃 <b>Olib ketadi</b>")
     parts.append("💵 Naqd" if order["payment"] == "cash" else "💳 Kartaga o'tkazma (chekni kuting)")
     parts += ["", order_lines_text(order, "uz"), "", f"💰 <b>Jami: {format_sum(order['total'])} so'm</b>"]
     if order.get("comment"):
         parts.append(f"💬 {escape(order['comment'])}")
+    status = order.get("status") or "new"
+    if status != "new":
+        when = datetime.fromisoformat(order["status_at"]).strftime("%H:%M") if order.get("status_at") else ""
+        label = "✅ <b>QABUL QILINDI</b>" if status == "accepted" else "❌ <b>BEKOR QILINDI</b>"
+        parts += ["", f"{label} — {escape(order.get('status_by') or '')} · {when}"]
     return "\n".join(parts)
+
+
+def group_order_keyboard(order: dict[str, Any]) -> InlineKeyboardMarkup | None:
+    """Guruhdagi buyurtma tagidagi tugmalar (holatga qarab)."""
+    status = order.get("status") or "new"
+    oid = order["id"]
+    if status == "new":
+        row = [InlineKeyboardButton(text="✅ Qabul qilish", callback_data=f"o:acc:{oid}"),
+               InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"o:rej:{oid}")]
+    elif status == "accepted":
+        row = [InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"o:rej:{oid}")]
+    else:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[row])
+
+
+def cancel_confirm_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="❗ Ha, bekor qilinsin", callback_data=f"o:rejy:{order_id}"),
+        InlineKeyboardButton(text="↩️ Yo'q", callback_data=f"o:back:{order_id}"),
+    ]])
 
 
 def user_order_text(order: dict[str, Any], lang: str, settings: dict[str, str]) -> str:
@@ -78,7 +112,8 @@ def history_text(orders: list[dict[str, Any]], lang: str) -> str:
     for order in orders:
         created = datetime.fromisoformat(order["created_at"]).strftime("%d.%m.%Y %H:%M")
         items = ", ".join(f"{_line_name(line, lang)} ×{line['qty']}" for line in order["items"])
+        mark = {"accepted": " ✅", "canceled": " ❌"}.get(order.get("status") or "", "")
         blocks.append(
-            f"\n<b>№{order['id']}</b> · {created}\n{escape(items)}\n💰 {format_sum(order['total'])} {cur}"
+            f"\n<b>№{order['id']}</b>{mark} · {created}\n{escape(items)}\n💰 {format_sum(order['total'])} {cur}"
         )
     return "\n".join(blocks)

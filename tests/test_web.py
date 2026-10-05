@@ -9,8 +9,6 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from bot.config import Config
-from bot.db import Database
-from bot.seed import seed
 from bot.web import create_app
 
 TOKEN = "123456:TEST-token"
@@ -36,24 +34,31 @@ class FakeBot:
     async def send_location(self, chat_id, lat, lon, **kw):
         self.sent.append(("location", chat_id, (lat, lon)))
 
+    async def edit_message_text(self, text, chat_id=None, message_id=None, **kw):
+        self.sent.append(("edit", chat_id, text))
+
+    async def get_file(self, file_id):
+        return SimpleNamespace(file_path=f"photos/{file_id}.jpg")
+
+    async def download_file(self, path, destination):
+        self.sent.append(("download", path, None))
+        destination.write(b"\xff\xd8JPEG")
+
 
 USER = {"id": 777, "first_name": "Sardor", "language_code": "uz"}
 
 
 @pytest.fixture
-async def ctx(tmp_path):
+async def ctx(tmp_path, fresh_db):
     cfg = Config(bot_token=TOKEN, base_url="https://example.com", mode="polling", host="127.0.0.1",
                  port=0, data_dir=tmp_path, superadmins=frozenset())
-    db = Database(":memory:")
-    await db.connect()
-    await seed(db)
+    db = fresh_db
     await db.set_setting("group_chat_id", "-100500")
     bot = FakeBot()
     client = TestClient(TestServer(create_app(cfg, db, bot)))
     await client.start_server()
     yield SimpleNamespace(client=client, db=db, bot=bot)
     await client.close()
-    await db.close()
 
 
 def auth(user=USER, **kw):
@@ -69,7 +74,7 @@ async def test_menu(ctx):
     data = await resp.json()
     assert data["ok"] and data["shop"]["open"] and data["shop"]["min_order"] == 50000
     names = [p["name"] for c in data["categories"] for p in c["products"]]
-    assert "Хот-дог с казы" in names
+    assert "Хот-дог с казы (маленький)" in names and "Хот-дог с казы (большой)" in names
     soon = [p for c in data["categories"] for p in c["products"] if p["name"] == "Эмир бургер"][0]
     assert soon["available"] is False
 
@@ -89,13 +94,19 @@ async def test_auth_required(ctx):
     assert (await ctx.client.post("/api/me", headers=old)).status == 401
 
 
+async def verify(db, phone="+998952898555", user_id=777):
+    await db.upsert_user(user_id, "Sardor")
+    await db.set_verified_phone(user_id, phone)
+
+
 async def test_order_flow(ctx):
-    qazi = await product_id(ctx.db, "Qazi xot-dog")
+    await verify(ctx.db)
+    qazi = await product_id(ctx.db, "Qazi xot-dog (katta)")
     lavash = await product_id(ctx.db, "Emir lavash")
     body = {
         "lang": "uz", "kind": "delivery", "payment": "card", "name": "Sardor", "phone": "95 289 85 55",
         "address": "Maktab yonida", "lat": 39.98, "lon": 64.5, "comment": "achchiq bo'lmasin",
-        "items": [{"id": qazi, "size": "large", "qty": 1}, {"id": lavash, "size": "small", "qty": 1}],
+        "items": [{"id": qazi, "qty": 1}, {"id": lavash, "size": "small", "qty": 1}],
     }
     resp = await ctx.client.post("/api/order", json=body, headers=auth())
     data = await resp.json()
@@ -113,13 +124,14 @@ async def test_order_flow(ctx):
     me = await (await ctx.client.post("/api/me", headers=auth())).json()
     assert me["user"]["phone"] == "+998952898555"
     orders = await (await ctx.client.get("/api/orders?lang=ru", headers=auth())).json()
-    assert orders["orders"][0]["items"][0]["name"] == "Хот-дог с казы"
+    assert orders["orders"][0]["items"][0]["name"] == "Хот-дог с казы (большой)"
 
     again = await ctx.client.post("/api/order", json=body, headers=auth())
     assert (await again.json())["error"] == "too_fast"
 
 
 async def test_min_order_and_pickup(ctx):
+    await verify(ctx.db, "+998901234567")
     fri = await product_id(ctx.db, "Fri")
     base = {"lang": "uz", "payment": "cash", "name": "Ali", "phone": "+998901234567",
             "items": [{"id": fri, "qty": 1}]}
@@ -136,3 +148,133 @@ async def test_closed_shop(ctx):
             "items": [{"id": fri, "qty": 1}]}
     resp = await ctx.client.post("/api/order", json=body, headers=auth())
     assert resp.status == 409 and (await resp.json())["error"] == "closed"
+
+
+async def test_uploaded_photo_served_from_telegram(ctx):
+    pid = await product_id(ctx.db, "Burger (katta)")
+    await ctx.db.update_product(pid, img="tg:AgACAgIAAx")
+    data = await (await ctx.client.get("/api/menu")).json()
+    img = next(p["img"] for c in data["categories"] for p in c["products"] if p["id"] == pid)
+    assert img.startswith(f"img/p/{pid}?v=")
+    for _ in range(2):
+        resp = await ctx.client.get("/" + img)
+        assert resp.status == 200 and await resp.read() == b"\xff\xd8JPEG"
+    assert [k for k, *_ in ctx.bot.sent].count("download") == 1  # ikkinchi marta keshdan
+    assert (await ctx.client.get("/img/p/1")).status == 404
+
+
+async def test_sizes_split_into_separate_items(ctx):
+    from bot.seed import split_sizes
+
+    products = {p["name_uz"]: p for p in await ctx.db.products()}
+    assert all(p["price_large"] is None for p in products.values())
+    assert products["Xot-dog Klassika (kichik)"]["price"] == 15000
+    assert products["Xot-dog Klassika (katta)"]["price"] == 18000
+    assert products["Burger (katta)"]["name_cyr"] == "Бургер (катта)"
+    assert products["Go'shtli xot-dog"]["price"] == 25000  # bitta o'lchamli taom o'zgarmaydi
+    assert len(products) == 20 + 7
+    assert await split_sizes(ctx.db) == 0  # qayta ishga tushganda hech narsa qilmaydi
+
+
+async def test_menu_banners(ctx):
+    data = await (await ctx.client.get("/api/menu?lang=uz")).json()
+    banners = data["banners"]
+    assert [b["theme"] for b in banners] == ["yellow", "red", "dark"]
+    assert banners[0]["text"].startswith("50 000 so'm")
+    assert banners[1]["text"].startswith("50 000 so'm") and banners[1]["product_id"]
+    assert banners[2]["img"] == "static/img/photos/hotdog-qazi.webp"
+    # Ulangan taom yashirilsa — banner ham chiqmaydi
+    await ctx.db.update_product(banners[1]["product_id"], is_active=0)
+    data = await (await ctx.client.get("/api/menu?lang=ru")).json()
+    assert len(data["banners"]) == 2 and data["banners"][1]["text"] == "Большой размер — 38 000 сум"
+
+
+async def test_photos_applied_to_both_sizes(ctx):
+    from bot.seed import apply_photos
+
+    products = {p["name_uz"]: p for p in await ctx.db.products()}
+    assert products["Burger (kichik)"]["img"] == products["Burger (katta)"]["img"] == "static/img/photos/burger.webp"
+    assert products["Doner (katta)"]["img"].endswith("doner.webp")
+    assert products["Chizburger (kichik)"]["img"] == "static/img/photos/cheeseburger.webp"
+    assert products["Arab kabob (katta)"]["img"] == "static/img/photos/arab-kabob2.webp"
+    assert products["Qazi xot-dog (kichik)"]["img"] == "static/img/photos/hotdog-qazi.webp"
+    assert products["Kolbaski xot-dog"]["img"] == "static/img/photos/hotdog-kolbaski.webp"
+    assert products["Suv"]["img"] == "static/img/photos/water.webp"
+    assert products["Klab sendvich"]["img"] == "static/img/photos/club-sandwich.webp"
+    for name in ("burger", "doner", "xagi", "lavash", "lavash-tandir", "arab-kabob2", "cheeseburger", "longer", "club-sandwich", "kfc", "fries",
+                 "hotdog-classic", "hotdog-qazi", "hotdog-meat", "hotdog-kolbaski", "cola", "fanta", "water"):
+        assert (await ctx.client.get(f"/static/img/photos/{name}.webp")).status == 200
+    assert await apply_photos(ctx.db) == 0  # qayta ishga tushganda tegmaydi
+
+
+async def test_new_photo_applied_after_old_migration(fresh_db):
+    from bot.seed import apply_photos
+
+    db = fresh_db
+    pid = next(p["id"] for p in await db.products() if p["name_uz"] == "Arab kabob (kichik)")
+    # Eski holat: v1 bayrog'i qo'yilgan, arab kabob hali chizma
+    await db.update_product(pid, img="static/img/arab-kabob.svg")
+    await db.set_setting("photos_applied", "")
+    await db.set_setting("migr_photos_v1", "1")
+    assert await apply_photos(db) == 17  # arab kabob, chizburger, xot-doglar, ichimliklar, longer, klab sendvich, kfc, fri
+    assert (await db.product(pid))["img"] == "static/img/photos/arab-kabob2.webp"
+    assert await apply_photos(db) == 0
+
+
+def _fri_body(db_fri, **extra):
+    return {"lang": "uz", "kind": "pickup", "payment": "cash", "name": "Ali", "phone": "+998901234567",
+            "items": [{"id": db_fri, "qty": 4}], **extra}
+
+
+async def test_phone_must_be_shared_via_telegram(ctx):
+    fri = await product_id(ctx.db, "Fri")
+    resp = await ctx.client.post("/api/order", json=_fri_body(fri), headers=auth())
+    assert (await resp.json())["error"] == "phone_unverified"
+    # Eski Telegram ilovasi (kontakt ulasha olmaydi) — qabul qilinadi, lekin guruhda belgilanadi
+    resp = await ctx.client.post("/api/order", json=_fri_body(fri, contact_supported=False), headers=auth())
+    assert (await resp.json())["ok"]
+    group_text = next(t for k, c, t in ctx.bot.sent if k == "message" and c == -100500)
+    assert "tasdiqlanmagan" in group_text
+
+
+async def test_delivery_zone(ctx):
+    await verify(ctx.db, "+998901234567")
+    await ctx.db.set_setting("shop_lat", "40.0")
+    await ctx.db.set_setting("shop_lon", "64.4")
+    await ctx.db.set_setting("delivery_radius_km", "3")
+    menu = await (await ctx.client.get("/api/menu")).json()
+    assert menu["shop"]["zone_area"] == {"lat": 40.0, "lon": 64.4, "radius_km": 3.0}
+    fri = await product_id(ctx.db, "Fri")
+    far = _fri_body(fri, kind="delivery", lat=40.1, lon=64.4)  # ~11 km
+    data = await (await ctx.client.post("/api/order", json=far, headers=auth())).json()
+    assert data["error"] == "out_of_zone" and data["distance_km"] > 10
+    near = _fri_body(fri, kind="delivery", lat=40.01, lon=64.4)  # ~1.1 km
+    data = await (await ctx.client.post("/api/order", json=near, headers=auth())).json()
+    assert data["ok"], data
+    group_text = next(t for k, c, t in ctx.bot.sent if k == "message" and c == -100500)
+    assert "1.1 km" in group_text and "Telegram orqali tasdiqlangan" in group_text
+
+
+async def test_customer_cancel(ctx):
+    await verify(ctx.db, "+998901234567")
+    fri = await product_id(ctx.db, "Fri")
+    oid = (await (await ctx.client.post("/api/order", json=_fri_body(fri), headers=auth())).json())["order"]["id"]
+    # Begona foydalanuvchi bekor qila olmaydi
+    other = auth({"id": 888, "first_name": "X"})
+    assert (await ctx.client.post(f"/api/orders/{oid}/cancel", headers=other)).status == 404
+    data = await (await ctx.client.post(f"/api/orders/{oid}/cancel", headers=auth())).json()
+    assert data["ok"] and data["order"]["status"] == "canceled"
+    edits = [t for k, c, t in ctx.bot.sent if k == "edit" and c == -100500]
+    assert edits and "BEKOR QILINDI</b> — Mijoz" in edits[-1]
+    assert any("Mijoz" in t and "bekor qildi" in t for k, c, t in ctx.bot.sent if k == "message" and c == -100500)
+
+
+async def test_customer_cannot_cancel_after_accept(ctx):
+    await verify(ctx.db, "+998901234567")
+    fri = await product_id(ctx.db, "Fri")
+    oid = (await (await ctx.client.post("/api/order", json=_fri_body(fri), headers=auth())).json())["order"]["id"]
+    await ctx.db.set_order_status(oid, "accepted", "Oshpaz")
+    resp = await ctx.client.post(f"/api/orders/{oid}/cancel", headers=auth())
+    data = await resp.json()
+    assert resp.status == 409 and data["error"] == "cannot_cancel" and data["order"]["status"] == "accepted"
+    assert (await ctx.db.order(oid))["status"] == "accepted"

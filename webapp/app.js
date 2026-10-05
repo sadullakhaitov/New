@@ -27,7 +27,7 @@
       else tg.HapticFeedback.impactOccurred(kind || 'light');
     } catch (e) { /* ignore */ }
   };
-  const isPhoto = (src) => /^uploads\//.test(src || '');
+  const isPhoto = (src) => /^img\/p\//.test(src || '');
 
   function T(key, vars) {
     const dict = window.I18N[state.lang] || window.I18N.uz;
@@ -44,6 +44,12 @@
     if (LANGS.includes(saved)) return saved;
     const code = tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code;
     return code && code.startsWith('ru') ? 'ru' : 'uz';
+  }
+
+  function initialTheme() {
+    const saved = store.get('ef_theme', null);
+    if (saved === 'light' || saved === 'dark') return saved;
+    return tg && tg.colorScheme === 'light' ? 'light' : 'dark';
   }
 
   // ---------- holat ----------
@@ -63,6 +69,12 @@
     orders: null,
     sending: false,
     closedShown: false,
+    verifiedPhone: '',
+    phoneWaiting: false,
+    banners: [],
+    bannerIndex: 0,
+    theme: initialTheme(),
+    upsellAsked: false,
     errors: {},
   };
 
@@ -88,6 +100,7 @@
     if (!data.ok) return false;
     state.shop = data.shop;
     state.categories = data.categories;
+    state.banners = data.banners || [];
     state.products = new Map();
     data.categories.forEach((c) => c.products.forEach((p) => state.products.set(p.id, Object.assign({ cat: c.id }, p))));
     if (!state.activeCat && data.categories.length) state.activeCat = data.categories[0].id;
@@ -105,7 +118,8 @@
     const data = await api('api/me', { method: 'POST', body: {} });
     if (data.ok) {
       state.form.name = state.form.name || data.user.name || '';
-      state.form.phone = state.form.phone || data.user.phone || '';
+      state.verifiedPhone = data.user.verified_phone || '';
+      state.form.phone = state.verifiedPhone || state.form.phone || data.user.phone || '';
       if (!new URLSearchParams(location.search).get('lang') && !store.get('ef_lang', null) && LANGS.includes(data.user.lang)) {
         state.lang = data.user.lang;
       }
@@ -150,7 +164,7 @@
   const ICON_FALLBACK = {
     plus: '+', minus: '−', 'trash-can': '×', xmark: '×', check: '✓', 'circle-check': '✓', 'chevron-left': '‹',
     'arrow-right': '→', receipt: '≡', globe: '◍', 'rotate-right': '↻', copy: '⧉', moon: '☾', fire: '★',
-    'location-dot': '•', 'location-crosshairs': '◎', 'paper-plane': '➤', spinner: '…', 'person-walking': '',
+    'location-dot': '•', sun: '☀',  'location-crosshairs': '◎', 'paper-plane': '➤', spinner: '…', 'person-walking': '',
     'truck-fast': '', phone: '☎', clock: '◷', store: '⌂',
   };
   const icon = (name, extra) => '<i class="fa-solid fa-' + name + (extra ? ' ' + extra : '') + '" data-fb="' +
@@ -176,7 +190,8 @@
   }
   function sizeNote(p) {
     if (!p.available) return T('price_soon');
-    return p.price_large != null ? T('small') + ' · ' + T('large') : T('one_size');
+    if (p.price_large != null) return T('small') + ' · ' + T('large');
+    return esc(p.desc || '');
   }
 
   function backHeader(title, right) {
@@ -188,18 +203,19 @@
   function renderHome() {
     const shop = state.shop;
     const open = shop.open;
-    let html = '<header class="top"><div class="brand"><div class="logo"><img src="static/img/logo.svg" alt=""></div><div>' +
+    let html = '<header class="top"><div class="brand"><div class="logo"><img src="static/img/logo.webp" alt="Emir Food"></div><div>' +
       '<div class="brand-name">EMIR <span>FOOD</span></div><div class="brand-sub">' + icon('location-dot') + ' Peshku · ' +
       (open ? '<span class="is-open">' + T('open_247') + '</span>' : '<span class="is-closed">' + T('closed_short') + '</span>') +
       '</div></div></div><div class="top-actions">' +
       '<button class="icon-btn" data-action="orders" aria-label="' + T('my_orders') + '">' + icon('receipt') + '</button>' +
-      '<button class="icon-btn" data-action="lang" aria-label="' + T('language') + '">' + icon('globe') + ' ' + LANG_SHORT[state.lang] + '</button>' +
+      '<button class="icon-btn" data-action="theme" aria-label="' + T(state.theme === 'dark' ? 'theme_light' : 'theme_dark') + '">' +
+      icon(state.theme === 'dark' ? 'sun' : 'moon') + '</button>' +
+      '<button class="icon-btn" data-action="lang" aria-label="' + T('language') + '">' + LANG_SHORT[state.lang] + '</button>' +
       '</div></header>';
 
     html += '<section class="hero"><h1 class="display">' + T('hero_title') + '</h1><p>' + T('hero_sub') + '</p></section>';
     html += kindSwitch();
-    html += '<div class="promo"><img src="static/img/burger.svg" alt=""><span class="tag">' + T('promo_tag') + '</span>' +
-      '<div class="title">' + T('promo_title') + '</div><div class="sub">' + T('promo_sub', { min: fmt(shop.min_order) }) + '</div></div>';
+    html += renderBanners();
 
     html += '<div class="chips-wrap"><nav class="chips" aria-label="' + T('categories') + '">' + state.categories.map((c) =>
       '<button class="chip" data-action="cat" data-id="' + c.id + '" aria-current="' + (c.id === state.activeCat) + '">' +
@@ -215,20 +231,104 @@
       '<div>' + icon('truck-fast') + '<span>' + esc(shop.zone) + ' · ' + T('free_from', { min: fmt(shop.min_order) }) + '</span></div></div>';
 
     if (cartCount() > 0) {
-      html += '<div class="bottom-bar" id="cart-bar"><button class="cta cart-bar" data-action="cart"><span class="info"><span>' +
+      html += '<div class="bottom-bar' + (state.barShown ? '' : ' appear') + '" id="cart-bar"><button class="cta cart-bar" data-action="cart"><span class="info"><span>' +
         T('in_cart', { n: cartCount() }) + '</span><b>' + money(cartTotal()) + '</b></span><span class="go">' + T('cart') + ' ' +
         icon('arrow-right') + '</span></button></div>';
     }
+    state.barShown = cartCount() > 0;
     return html;
   }
 
+  // "Qazi xot-dog (katta)" -> nom + o'lcham belgisi
+  const SIZE_WORDS = { kichik: 'small', 'кичик': 'small', 'маленький': 'small', katta: 'large', 'катта': 'large', 'большой': 'large' };
+  function splitSize(name) {
+    const m = /^(.*\S)\s*\(([^)]+)\)$/.exec(name || '');
+    const kind = m && SIZE_WORDS[m[2].toLowerCase()];
+    return kind ? { base: m[1], label: m[2], kind } : { base: name, label: '', kind: '' };
+  }
+  const sizeTag = (sz) => (sz.kind ? ' <span class="size-tag ' + sz.kind + '">' + esc(sz.label) + '</span>' : '');
+
+  // ---------- banner karuseli ----------
+  const SLIDE_MS = 5000;
+  function renderBanners() {
+    const list = state.banners;
+    if (!list.length) return '';
+    if (state.bannerIndex >= list.length) state.bannerIndex = 0;
+    const slides = list.map((b, i) =>
+      '<div class="slide ' + esc(b.theme) + (i === state.bannerIndex ? ' active' : '') + '" data-action="banner" data-i="' + i + '"' +
+      ' role="group" aria-roledescription="slide" aria-label="' + (i + 1) + ' / ' + list.length + '">' +
+      (b.img ? img(b.img) : '') +
+      (b.tag ? '<span class="tag">' + esc(b.tag) + '</span>' : '') +
+      '<div class="title">' + esc(b.title) + '</div>' +
+      (b.text ? '<div class="sub">' + esc(b.text) + '</div>' : '') +
+      (b.product_id ? '<span class="go">' + T('order_now') + ' ' + icon('arrow-right') + '</span>' : '') +
+      '</div>').join('');
+    const dots = list.length > 1 ? '<div class="dots" role="tablist">' + list.map((b, i) =>
+      '<button class="timing" data-action="banner-dot" data-i="' + i + '" aria-label="' + (i + 1) + '" aria-current="' + (i === state.bannerIndex) + '"></button>').join('') + '</div>' : '';
+    return '<section class="carousel" aria-roledescription="carousel" aria-label="' + T('news') + '"><div class="track" id="banner-track">' +
+      slides + '</div>' + dots + '</section>';
+  }
+
+  let bannerTimer = null;
+  let bannerPausedUntil = 0;
+  let scrollTimer = null;
+  function slideWidth(track) {
+    const first = track.firstElementChild;
+    return first ? first.getBoundingClientRect().width + 12 : track.clientWidth;
+  }
+  function setActiveSlide(i) {
+    state.bannerIndex = i;
+    document.querySelectorAll('#banner-track .slide').forEach((el, j) => el.classList.toggle('active', j === i));
+    document.querySelectorAll('.dots button').forEach((el, j) => {
+      el.setAttribute('aria-current', String(j === i));
+      el.classList.remove('timing');
+      if (j === i && Date.now() >= bannerPausedUntil) { void el.offsetWidth; el.classList.add('timing'); }
+    });
+  }
+  function goSlide(i, smooth) {
+    const track = document.getElementById('banner-track');
+    if (!track) return;
+    const n = state.banners.length;
+    i = ((i % n) + n) % n;
+    track.scrollTo({ left: i * slideWidth(track), behavior: smooth && !reducedMotion() ? 'smooth' : 'auto' });
+    setActiveSlide(i);
+  }
+  function setupCarousel() {
+    const track = document.getElementById('banner-track');
+    if (!track) return;
+    document.documentElement.style.setProperty('--slide-ms', SLIDE_MS + 'ms');
+    track.scrollLeft = state.bannerIndex * slideWidth(track);
+    const pause = () => {
+      bannerPausedUntil = Date.now() + 7000;
+      document.querySelectorAll('.dots button').forEach((el) => el.classList.remove('timing'));
+    };
+    track.addEventListener('pointerdown', pause, { passive: true });
+    track.addEventListener('touchstart', pause, { passive: true });
+    track.addEventListener('scroll', () => {
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        const i = Math.round(track.scrollLeft / slideWidth(track));
+        if (i !== state.bannerIndex) setActiveSlide(i);
+      }, 90);
+    }, { passive: true });
+    clearInterval(bannerTimer);
+    if (state.banners.length > 1) {
+      bannerTimer = setInterval(() => {
+        if (document.hidden || state.sheet || Date.now() < bannerPausedUntil) return;
+        if (!document.getElementById('banner-track')) return;
+        goSlide(state.bannerIndex + 1, true);
+      }, SLIDE_MS);
+    }
+  }
+
   function renderCard(p) {
+    const sz = splitSize(p.name);
     const q = qtyOf(p.id);
-    return '<div class="card' + (p.available ? '' : ' soon') + '" data-action="open" data-id="' + p.id + '" role="button" tabindex="0" aria-label="' + esc(p.name) + '">' +
+    return '<div class="card' + (p.available ? '' : ' soon') + (sz.kind === 'small' ? ' is-small' : '') + '" data-action="open" data-id="' + p.id + '" role="button" tabindex="0" aria-label="' + esc(p.name) + '">' +
       '<div class="card-img">' + img(p.img) +
       (p.hit ? '<span class="badge-hit">' + icon('fire') + ' HIT</span>' : '') +
       (q ? '<span class="badge-qty">' + q + '</span>' : '') + '</div>' +
-      '<div class="card-name">' + esc(p.name) + '</div><div class="card-note">' + sizeNote(p) + '</div>' +
+      '<div class="card-name">' + esc(sz.base) + sizeTag(sz) + '</div><div class="card-note">' + sizeNote(p) + '</div>' +
       '<div class="card-foot">' + priceLabel(p) +
       (p.available ? '<button class="add-btn" data-action="quick-add" data-id="' + p.id + '" aria-label="' + T('add') + '">' + icon('plus') + '</button>' : '') +
       '</div></div>';
@@ -295,9 +395,7 @@
     html += kindSwitch();
     html += '<div class="stack"><label class="field">' + T('your_name') +
       '<input class="input' + (er.name ? ' invalid' : '') + '" id="f-name" data-field="name" autocomplete="name" maxlength="64" value="' + esc(f.name) + '" placeholder="' + T('name_ph') + '"></label>' +
-      '<label class="field" for="f-phone">' + T('phone') + '</label><div class="field-row">' +
-      '<input class="input' + (er.phone ? ' invalid' : '') + '" id="f-phone" data-field="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" value="' + esc(f.phone) + '" placeholder="+998 __ ___ __ __">' +
-      (canRequestContact() ? '<button class="ghost-btn" data-action="contact">' + icon('paper-plane') + ' Telegram</button>' : '') + '</div></div>';
+      phoneField(er) + '</div>';
 
     if (state.kind === 'delivery') {
       const hasLoc = f.lat != null;
@@ -305,7 +403,7 @@
         '<button class="loc-btn' + (hasLoc ? ' done' : '') + '" data-action="location">' +
         icon(hasLoc ? 'circle-check' : 'location-crosshairs') + ' ' + T(hasLoc ? 'location_ok' : 'send_location') + '</button>' +
         '<textarea class="input' + (er.address ? ' invalid' : '') + '" rows="2" data-field="address" maxlength="300" aria-label="' + T('address_title') + '" placeholder="' + T('address_ph') + '">' + esc(f.address) + '</textarea>' +
-        '<span class="hint">' + icon('circle-info') + ' ' + esc(state.shop.zone) + ' · ' + T('free') + '</span></div>';
+        zoneHint() + '</div>';
     } else {
       html += '<div class="pickup-card"><div class="ico">' + icon('store') + '</div><div><b>Emir Food</b><span>' + esc(state.shop.address) + '</span></div></div>';
     }
@@ -317,11 +415,52 @@
     html += '<div class="summary"><div class="row"><span>' + T('items_n', { n: cartCount() }) + '</span><b>' + money(total) + '</b></div>' +
       minInfo(total) + '</div>';
 
-    const ok = minMet(total) && state.shop.open && total > 0;
+    const ok = minMet(total) && state.shop.open && total > 0 && !outOfZone();
     html += '<div class="bottom-bar"><button class="cta split" data-action="submit"' + (ok && !state.sending ? '' : ' disabled') + '><span>' +
       (state.sending ? icon('spinner', 'spin') + ' ' + T('sending') : T('place_order')) + '</span><span>' + money(total) + '</span></button></div>';
     return html;
   }
+
+  // Telefon: Telegram'ning "kontaktni ulashish" oynasi orqali — shunda raqam haqiqiy bo'ladi.
+  function zoneHint() {
+    const z = zoneDistance();
+    if (z && z.dist > z.radius) {
+      return '<span class="hint bad">' + icon('triangle-exclamation') + ' ' +
+        T('err_out_of_zone', { dist: z.dist.toFixed(1), radius: z.radius }) + '</span>';
+    }
+    if (z) return '<span class="hint good">' + icon('circle-check') + ' ' + T('zone_ok', { dist: z.dist.toFixed(1) }) + '</span>';
+    return '<span class="hint">' + icon('circle-info') + ' ' + esc(state.shop.zone) + ' · ' + T('free') + '</span>';
+  }
+
+  function phoneField(er) {
+    const label = '<span class="label">' + T('phone') + '</span>';
+    if (!canRequestContact()) {
+      return '<label class="field" for="f-phone">' + T('phone') + '</label>' +
+        '<input class="input' + (er.phone ? ' invalid' : '') + '" id="f-phone" data-field="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" value="' + esc(state.form.phone) + '" placeholder="+998 __ ___ __ __">';
+    }
+    if (state.phoneWaiting) {
+      return label + '<div class="phone-box">' + icon('spinner', 'spin') + '<span>' + T('waiting_phone') + '</span></div>';
+    }
+    if (state.verifiedPhone) {
+      return label + '<div class="phone-box verified">' + icon('circle-check') + '<span><b>' + esc(state.verifiedPhone) + '</b><small>' +
+        T('phone_verified') + '</small></span><button class="text-btn" data-action="contact">' + T('change') + '</button></div>';
+    }
+    return label + '<button class="loc-btn' + (er.phone ? ' invalid' : '') + '" data-action="contact">' + icon('paper-plane') + ' ' + T('share_phone') + '</button>' +
+      '<span class="hint">' + T('share_phone_hint') + '</span>';
+  }
+
+  function zoneDistance() {
+    const z = state.shop && state.shop.zone_area;
+    const f = state.form;
+    if (!z || f.lat == null) return null;
+    const rad = (d) => d * Math.PI / 180;
+    const a = Math.sin(rad(f.lat - z.lat) / 2) ** 2 + Math.cos(rad(z.lat)) * Math.cos(rad(f.lat)) * Math.sin(rad(f.lon - z.lon) / 2) ** 2;
+    return { dist: 2 * 6371 * Math.asin(Math.sqrt(a)), radius: z.radius_km };
+  }
+  const outOfZone = () => {
+    const z = zoneDistance();
+    return state.kind === 'delivery' && !!z && z.dist > z.radius;
+  };
 
   function payBtn(id, ico, title, sub) {
     return '<button class="pay" data-action="pay" data-pay="' + id + '" aria-pressed="' + (state.payment === id) + '"><span class="dot"></span>' +
@@ -341,9 +480,12 @@
     if (state.orders == null) return '<p class="hint">' + icon('spinner', 'spin') + ' ' + T('loading') + '</p>';
     if (!state.orders.length) return '<p class="hint">' + T('no_orders') + '</p>';
     return '<div class="lines">' + state.orders.map((o) =>
-      '<div class="order"><div class="info"><div class="top-line"><b>№ ' + o.id + '</b><small>' + orderDate(o.created_at) + '</small></div>' +
+      '<div class="order"><div class="info"><div class="top-line"><b>№ ' + o.id + '</b><small>' + orderDate(o.created_at) + '</small>' +
+      '<span class="status st-' + esc(o.status || 'new') + '">' + T('st_' + (o.status || 'new')) + '</span></div>' +
       '<span>' + esc(orderItems(o)) + '</span><em>' + money(o.total) + '</em></div>' +
-      '<button class="repeat-btn" data-action="repeat" data-id="' + o.id + '">' + icon('rotate-right') + ' ' + T('repeat') + '</button></div>'
+      '<div class="order-btns">' +
+      ((o.status || 'new') === 'new' ? '<button class="repeat-btn cancel" data-action="cancel-order" data-id="' + o.id + '">' + icon('xmark') + ' ' + T('cancel_order') + '</button>' : '') +
+      '<button class="repeat-btn" data-action="repeat" data-id="' + o.id + '">' + icon('rotate-right') + ' ' + T('repeat') + '</button></div></div>'
     ).join('') + '</div>';
   }
 
@@ -367,13 +509,16 @@
   }
 
   // ---------- pastki oynalar (sheet) ----------
-  function renderSheet() {
+  // animate=true — oyna birinchi marta ochilganda; keyingi qayta chizishlarda animatsiya takrorlanmaydi.
+  function renderSheet(animate) {
     const s = state.sheet;
     if (!s) { sheetRoot.innerHTML = ''; return; }
+    sheetRoot.className = animate ? '' : 'static';
     let inner = '';
     if (s.type === 'product') inner = productSheet(s);
     else if (s.type === 'lang') inner = langSheet();
     else if (s.type === 'closed') inner = closedSheet();
+    else if (s.type === 'upsell') inner = upsellSheet();
     sheetRoot.innerHTML = '<div class="overlay" data-action="close-sheet"></div>' + inner;
   }
 
@@ -400,15 +545,25 @@
       '<button data-action="sheet-dec" aria-label="' + T('less') + '">' + icon('minus') + '</button><output>' + s.qty + '</output>' +
       '<button class="plus" data-action="sheet-inc" aria-label="' + T('more') + '">' + icon('plus') + '</button></div></div>';
 
-    const up = state.shop.upsell_id && state.products.get(state.shop.upsell_id);
-    if (up && up.available && up.id !== p.id) {
-      html += '<button class="upsell-toggle" data-action="sheet-upsell" aria-pressed="' + !!s.upsell + '">' + img(up.img) +
-        '<span class="txt"><b>' + T('upsell_q', { name: esc(up.name) }) + '</b><span>+' + money(up.price) + '</span></span>' +
-        '<span class="box">' + icon('check') + '</span></button>';
-    }
-    const total = unitPrice(p, s.size) * s.qty + (s.upsell && up ? up.price : 0);
+    const total = unitPrice(p, s.size) * s.qty;
     html += '</div></div><div class="bottom-bar sheet-bar"><button class="cta" data-action="sheet-add">' + T('add_to_cart') + ' · ' + money(total) + '</button></div>';
     return html;
+  }
+
+  function upsellProduct() {
+    const up = state.shop && state.shop.upsell_id && state.products.get(state.shop.upsell_id);
+    return up && up.available ? up : null;
+  }
+
+  function upsellSheet() {
+    const up = upsellProduct();
+    if (!up) return '';
+    return '<div class="sheet small" role="dialog" aria-modal="true" aria-label="' + esc(T('upsell_q', { name: up.name })) + '"><div class="grabber"></div>' +
+      '<div class="upsell-art">' + img(up.img) + '</div>' +
+      '<h2 class="display">' + esc(T('upsell_q', { name: up.name })) + '</h2>' +
+      '<div class="pill"><em>+' + money(up.price) + '</em></div>' +
+      '<button class="cta" data-action="upsell-yes">' + icon('plus') + ' ' + T('upsell_yes') + '</button>' +
+      '<button class="link-btn" data-action="upsell-no">' + T('upsell_no') + '</button></div>';
   }
 
   function langSheet() {
@@ -428,18 +583,31 @@
       '<a class="link-btn" href="tel:' + esc(state.shop.phone.replace(/\s/g, '')) + '">' + icon('phone') + ' ' + esc(state.shop.phone) + '</a></div>';
   }
 
+  let closingTimer = null;
   function openSheet(sheet) {
+    clearTimeout(closingTimer);
     state.sheet = sheet;
-    renderSheet();
+    renderSheet(true);
     document.body.style.overflow = 'hidden';
     syncBackButton();
   }
-  function closeSheet() {
+  function closeSheet(after) {
     state.sheet = null;
-    renderSheet();
     document.body.style.overflow = '';
     syncBackButton();
+    if (!sheetRoot.firstChild || reducedMotion()) {
+      sheetRoot.innerHTML = '';
+      if (after) after();
+      return;
+    }
+    sheetRoot.className = 'closing';
+    clearTimeout(closingTimer);
+    closingTimer = setTimeout(() => {
+      if (!state.sheet) { sheetRoot.innerHTML = ''; sheetRoot.className = ''; }
+      if (after) after();
+    }, 220);
   }
+  const reducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ---------- render va navigatsiya ----------
   function render() {
@@ -447,21 +615,23 @@
     const views = { home: renderHome, cart: renderCart, checkout: renderCheckout, success: renderSuccess, orders: renderOrders };
     app.innerHTML = (views[state.view] || renderHome)();
     syncBackButton();
-    if (state.view === 'home') observeSections();
+    if (state.view === 'home') { observeSections(); setupCarousel(); }
   }
 
-  function go(view) {
+  function go(view, isBack) {
     state.view = view;
     state.errors = {};
+    app.classList.remove('enter-fwd', 'enter-back');
     render();
     window.scrollTo(0, 0);
+    void app.offsetWidth; // animatsiyani qayta ishga tushirish
+    app.classList.add(isBack ? 'enter-back' : 'enter-fwd');
   }
 
   function back() {
     if (state.sheet) return closeSheet();
-    if (state.view === 'checkout') return go('cart');
-    if (state.view === 'success') return go('home');
-    if (state.view !== 'home') return go('home');
+    if (state.view === 'checkout') return go('cart', true);
+    if (state.view !== 'home') return go('home', true);
   }
 
   function syncBackButton() {
@@ -497,6 +667,11 @@
     toastTimer = setTimeout(() => { toastEl.className = ''; }, 2600);
   }
 
+  function popBadge(id) {
+    const badge = document.querySelector('.card[data-id="' + id + '"] .badge-qty');
+    if (badge) badge.classList.add('pop');
+  }
+
   function bumpCart() {
     const bar = document.getElementById('cart-bar');
     if (bar) { bar.classList.remove('bump'); void bar.offsetWidth; bar.classList.add('bump'); }
@@ -508,17 +683,31 @@
   }
 
   function requestContact() {
-    tg.requestContact((ok, res) => {
-      const phone = ok && res && res.responseUnsafe && res.responseUnsafe.contact && res.responseUnsafe.contact.phone_number;
-      if (phone) {
-        state.form.phone = phone.startsWith('+') ? phone : '+' + phone;
-        state.errors.phone = false;
-        render();
-        haptic('ok');
-      } else if (ok) {
-        toast(T('contact_sent'));
-      }
+    tg.requestContact((ok) => {
+      if (!ok) { toast(T('err_phone_share'), true); return; }
+      // Raqam botga kontakt sifatida keladi; server uni saqlaguncha kutamiz.
+      state.phoneWaiting = true;
+      render();
+      waitVerifiedPhone(0);
     });
+  }
+
+  async function waitVerifiedPhone(attempt) {
+    const data = await api('api/me', { method: 'POST', body: {} });
+    const phone = data.ok && data.user.verified_phone;
+    if (phone && (phone !== state.verifiedPhone || attempt >= 3)) {
+      state.verifiedPhone = phone;
+      state.form.phone = phone;
+      state.phoneWaiting = false;
+      state.errors.phone = false;
+      haptic('ok');
+      render();
+      return;
+    }
+    if (attempt < 14) { setTimeout(() => waitVerifiedPhone(attempt + 1), 700); return; }
+    state.phoneWaiting = false;
+    render();
+    toast(T('err_phone_wait'), true);
   }
 
   function setLocation(lat, lon) {
@@ -578,7 +767,9 @@
     const f = state.form;
     const errors = {};
     if (!f.name.trim()) errors.name = T('err_name');
-    if (f.phone.replace(/\D/g, '').length < 9) errors.phone = T('err_phone');
+    if (canRequestContact()) {
+      if (!state.verifiedPhone) errors.phone = T('err_phone_share');
+    } else if (f.phone.replace(/\D/g, '').length < 9) errors.phone = T('err_phone');
     if (state.kind === 'delivery' && !f.address.trim() && f.lat == null) errors.address = T('err_address');
     state.errors = errors;
     return Object.values(errors)[0] || null;
@@ -589,6 +780,13 @@
     if (!tg || !tg.initData) { toast(T('open_in_tg'), true); return; }
     const err = validate();
     if (err) { render(); toast(err, true); haptic('error'); return; }
+    // Savatda fri bo'lmasa — buyurtmadan oldin bir marta taklif qilinadi.
+    const up = upsellProduct();
+    if (up && !state.upsellAsked && !state.cart.some((l) => l.id === up.id)) {
+      state.upsellAsked = true;
+      openSheet({ type: 'upsell' });
+      return;
+    }
     state.sending = true;
     render();
     const f = state.form;
@@ -596,7 +794,8 @@
       method: 'POST',
       body: {
         lang: state.lang, kind: state.kind, payment: state.payment,
-        name: f.name.trim(), phone: f.phone.trim(),
+        name: f.name.trim(), phone: canRequestContact() ? state.verifiedPhone : f.phone.trim(),
+        contact_supported: canRequestContact(),
         address: state.kind === 'delivery' ? f.address.trim() : '',
         lat: state.kind === 'delivery' ? f.lat : null, lon: state.kind === 'delivery' ? f.lon : null,
         comment: f.comment.trim(),
@@ -606,6 +805,7 @@
     state.sending = false;
     if (res.ok) {
       state.lastOrder = res.order;
+      state.upsellAsked = false;
       state.cart = [];
       saveCart();
       store.set('ef_address', f.address);
@@ -629,6 +829,8 @@
       case 'min_order': return T('min_need', { min: fmt(res.min_order || 0), left: fmt((res.min_order || 0) - cartTotal()) });
       case 'unavailable': return T('err_unavailable');
       case 'phone_invalid': return T('err_phone');
+      case 'phone_unverified': state.verifiedPhone = ''; return T('err_phone_share');
+      case 'out_of_zone': return T('err_out_of_zone', { dist: Number(res.distance_km).toFixed(1), radius: res.radius_km });
       case 'name_required': return T('err_name');
       case 'address_required': return T('err_address');
       case 'too_fast': return T('err_too_fast');
@@ -651,10 +853,31 @@
     let added = 0;
     o.items.forEach((i) => {
       const p = state.products.get(i.id);
-      if (p && p.available) { addToCart(i.id, i.size === 'large' ? 'large' : 'small', i.qty); added += 1; }
+      const sizeOk = i.size !== 'large' || (p && p.price_large != null);
+      if (p && p.available && sizeOk) { addToCart(i.id, i.size === 'large' ? 'large' : 'small', i.qty); added += 1; }
     });
     if (added < o.items.length) toast(T('repeat_partial'));
     go('cart');
+  }
+
+  function confirmDialog(text, cb) {
+    if (tg && tg.showConfirm && tg.isVersionAtLeast && tg.isVersionAtLeast('6.2')) tg.showConfirm(text, cb);
+    else cb(window.confirm(text));
+  }
+
+  function askCancel(id) {
+    confirmDialog(T('cancel_confirm', { id }), async (yes) => {
+      if (!yes) return;
+      const res = await api('api/orders/' + id + '/cancel?lang=' + state.lang, { method: 'POST', body: {} });
+      const fresh = res.order;
+      if (fresh && state.orders) state.orders = state.orders.map((o) => (o.id === fresh.id ? fresh : o));
+      if (state.lastOrder && fresh && state.lastOrder.id === fresh.id) state.lastOrder = fresh;
+      render();
+      if (res.ok) { haptic('ok'); toast(T('canceled_ok')); }
+      else if (res.error === 'cannot_cancel' && fresh && fresh.status === 'accepted') {
+        haptic('error'); toast(T('err_cannot_cancel', { phone: state.shop.phone }), true);
+      } else if (res.error !== 'cannot_cancel') { toast(errorText(res), true); }
+    });
   }
 
   async function setLang(lang) {
@@ -674,10 +897,27 @@
     const id = el.dataset.id ? Number(el.dataset.id) : null;
     switch (action) {
       case 'back': back(); break;
-      case 'home': go('home'); break;
+      case 'home': go('home', true); break;
       case 'cart': go('cart'); break;
       case 'orders': state.orders = null; go('orders'); loadOrders(); break;
       case 'lang': openSheet({ type: 'lang' }); break;
+      case 'theme':
+        state.theme = state.theme === 'dark' ? 'light' : 'dark';
+        store.set('ef_theme', state.theme);
+        applyTheme();
+        haptic('light');
+        render();
+        break;
+      case 'banner': {
+        const b = state.banners[Number(el.dataset.i)];
+        const p = b && b.product_id && state.products.get(b.product_id);
+        if (p) openSheet({ type: 'product', id: p.id, size: p.price_large != null ? 'large' : 'small', qty: 1 });
+        break;
+      }
+      case 'banner-dot':
+        bannerPausedUntil = Date.now() + 7000;
+        goSlide(Number(el.dataset.i), true);
+        break;
       case 'set-lang': setLang(el.dataset.lang); break;
       case 'close-sheet': closeSheet(); break;
       case 'kind':
@@ -693,31 +933,31 @@
       }
       case 'open': {
         const p = state.products.get(id);
-        if (p) openSheet({ type: 'product', id, size: p.price_large != null ? 'large' : 'small', qty: 1, upsell: false });
+        if (p) openSheet({ type: 'product', id, size: p.price_large != null ? 'large' : 'small', qty: 1 });
         break;
       }
       case 'quick-add': {
         const p = state.products.get(id);
         if (!p) break;
-        if (p.price_large != null) { openSheet({ type: 'product', id, size: 'large', qty: 1, upsell: false }); break; }
+        if (p.price_large != null) { openSheet({ type: 'product', id, size: 'large', qty: 1 }); break; }
         addToCart(id, 'small', 1);
         render();
         bumpCart();
+        popBadge(id);
         toast(T('added', { name: p.name }));
         break;
       }
-      case 'size': state.sheet.size = el.dataset.size; haptic('light'); renderSheet(); break;
-      case 'sheet-inc': state.sheet.qty = Math.min(state.sheet.qty + 1, 50); haptic('light'); renderSheet(); break;
-      case 'sheet-dec': state.sheet.qty = Math.max(state.sheet.qty - 1, 1); haptic('light'); renderSheet(); break;
-      case 'sheet-upsell': state.sheet.upsell = !state.sheet.upsell; haptic('light'); renderSheet(); break;
+      case 'size': state.sheet.size = el.dataset.size; haptic('light'); renderSheet(false); break;
+      case 'sheet-inc': state.sheet.qty = Math.min(state.sheet.qty + 1, 50); haptic('light'); renderSheet(false); break;
+      case 'sheet-dec': state.sheet.qty = Math.max(state.sheet.qty - 1, 1); haptic('light'); renderSheet(false); break;
       case 'sheet-add': {
         const s = state.sheet;
         const p = state.products.get(s.id);
         addToCart(s.id, s.size, s.qty);
-        if (s.upsell && state.shop.upsell_id) addToCart(state.shop.upsell_id, 'small', 1);
         closeSheet();
         render();
         bumpCart();
+        popBadge(s.id);
         toast(T('added', { name: p ? p.name : '' }));
         break;
       }
@@ -729,8 +969,16 @@
       case 'contact': requestContact(); break;
       case 'location': requestLocation(); break;
       case 'submit': submitOrder(); break;
+      case 'upsell-yes': {
+        const up = upsellProduct();
+        if (up) addToCart(up.id, 'small', 1);
+        closeSheet(() => { render(); submitOrder(); });
+        break;
+      }
+      case 'upsell-no': closeSheet(() => submitOrder()); break;
       case 'copy': copyCard(); break;
       case 'repeat': repeatOrder(id); break;
+      case 'cancel-order': askCancel(id); break;
       default: break;
     }
   }
@@ -754,15 +1002,27 @@
     if (state.errors[field]) { state.errors[field] = false; e.target.classList.remove('invalid'); }
   });
 
+  // ---------- kunduzgi / tungi rejim ----------
+  function applyTheme() {
+    document.documentElement.setAttribute('data-theme', state.theme);
+    const bg = state.theme === 'light' ? '#F7F2EA' : '#121110';
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', bg);
+    if (!tg) return;
+    try {
+      tg.setHeaderColor(bg);
+      tg.setBackgroundColor(bg);
+      if (tg.isVersionAtLeast('7.10')) tg.setBottomBarColor(bg);
+    } catch (e) { /* eski versiyalar */ }
+  }
+
   // ---------- ishga tushirish ----------
   async function boot() {
+    applyTheme();
     if (tg) {
       tg.ready();
       tg.expand();
       try {
-        tg.setHeaderColor('#121110');
-        tg.setBackgroundColor('#121110');
-        if (tg.isVersionAtLeast('7.10')) tg.setBottomBarColor('#121110');
         if (tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes();
       } catch (e) { /* eski versiyalar */ }
       tg.BackButton.onClick(back);
@@ -770,7 +1030,7 @@
     await loadMe();
     const ok = await loadMenu();
     if (!ok) {
-      app.innerHTML = '<div class="empty"><img src="static/img/logo.svg" alt=""><h2 class="display">' + T('err_network') +
+      app.innerHTML = '<div class="empty"><img class="empty-logo" src="static/img/logo.webp" alt="Emir Food"><h2 class="display">' + T('err_network') +
         '</h2><button class="cta" style="max-width:260px" onclick="location.reload()">' + T('retry') + '</button></div>';
       return;
     }

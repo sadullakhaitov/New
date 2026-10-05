@@ -14,9 +14,10 @@ from aiogram.types import (
 
 from ..access import group_id
 from ..config import Config
-from ..core import LANGS, format_sum, norm_lang, shop_status
+from ..core import LANGS, format_sum, norm_lang, normalize_phone, shop_status
 from ..db import Database
 from ..notify import history_text
+from ..staff import cancel_by_customer
 from ..texts import LANG_NAMES, TEXTS, t
 
 log = logging.getLogger(__name__)
@@ -132,6 +133,13 @@ async def open_menu(message: Message, db: Database, cfg: Config) -> None:
         await message.answer(t("no_webapp", lang, phone=await db.get_setting("phone")))
 
 
+def cancel_keyboard(orders: list[dict], lang: str) -> InlineKeyboardMarkup | None:
+    """Xodimlar hali qabul qilmagan buyurtmalar uchun "bekor qilish" tugmalari."""
+    rows = [[InlineKeyboardButton(text=t("btn_cancel_order", lang, id=o["id"]), callback_data=f"c:can:{o['id']}")]
+            for o in orders if (o.get("status") or "new") == "new"]
+    return InlineKeyboardMarkup(inline_keyboard=rows[:3]) if rows else None
+
+
 @router.message(F.text.in_(_all("btn_orders")))
 async def my_orders(message: Message, db: Database) -> None:
     lang = await _lang(db, message)
@@ -139,7 +147,63 @@ async def my_orders(message: Message, db: Database) -> None:
     if not orders:
         await message.answer(t("no_orders", lang))
         return
-    await message.answer(history_text(orders, lang))
+    await message.answer(history_text(orders, lang), reply_markup=cancel_keyboard(orders, lang))
+
+
+@router.callback_query(F.data.startswith("c:can:"))
+async def ask_cancel(call: CallbackQuery, db: Database) -> None:
+    user = await db.user(call.from_user.id)
+    lang = norm_lang(user["lang"] if user else None)
+    oid = int(call.data.split(":")[2])
+    await call.message.answer(t("cancel_q", lang, id=oid), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=t("cancel_yes", lang), callback_data=f"c:yes:{oid}"),
+        InlineKeyboardButton(text=t("cancel_no", lang), callback_data="c:no"),
+    ]]))
+    await call.answer()
+
+
+@router.callback_query(F.data == "c:no")
+async def keep_order(call: CallbackQuery) -> None:
+    try:
+        await call.message.delete()
+    except TelegramAPIError:
+        pass
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("c:yes:"))
+async def do_cancel(call: CallbackQuery, db: Database, bot: Bot) -> None:
+    user = await db.user(call.from_user.id)
+    lang = norm_lang(user["lang"] if user else None)
+    oid = int(call.data.split(":")[2])
+    result, _ = await cancel_by_customer(bot, db, oid, call.from_user.id)
+    if result == "not_found":
+        await call.answer()
+        return
+    if result == "accepted":
+        text = t("cannot_cancel", lang, id=oid, phone=await db.get_setting("phone"))
+    else:  # "ok" yoki allaqachon bekor qilingan
+        text = t("canceled_by_you", lang, id=oid)
+    try:
+        await call.message.edit_text(text)
+    except TelegramAPIError:
+        await call.message.answer(text)
+    await call.answer()
+
+
+@router.message(F.contact)
+async def contact_shared(message: Message, db: Database) -> None:
+    """Mini App'dagi "Telegram orqali yuborish" tugmasi raqamni shu yerga yuboradi."""
+    contact = message.contact
+    if contact.user_id != message.from_user.id:
+        return  # boshqa odamning kontakti — tasdiqlangan raqam sifatida olinmaydi
+    phone = normalize_phone(contact.phone_number)
+    if not phone:
+        return
+    await db.upsert_user(message.from_user.id, message.from_user.first_name or "", message.from_user.username or "")
+    await db.set_verified_phone(message.from_user.id, phone)
+    lang = await _lang(db, message)
+    await message.answer(t("phone_saved", lang, phone=phone))
 
 
 @router.message(F.text.in_(_all("btn_contact")))

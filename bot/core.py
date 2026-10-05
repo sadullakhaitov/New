@@ -182,3 +182,35 @@ def build_order_lines(
         })
         total += price * qty
     return lines, total
+
+
+# ---------- yetkazish hududi ----------
+def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Ikki nuqta orasidagi to'g'ri chiziqli masofa (km)."""
+    from math import asin, cos, radians, sin, sqrt
+
+    dlat, dlon = radians(lat2 - lat1), radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return 2 * 6371.0 * asin(sqrt(a))
+
+
+@dataclass(frozen=True)
+class DeliveryZone:
+    lat: float
+    lon: float
+    radius_km: float
+
+    def distance(self, lat: float, lon: float) -> float:
+        return distance_km(self.lat, self.lon, lat, lon)
+
+
+def delivery_zone(settings: dict[str, str]) -> DeliveryZone | None:
+    """Admin do'kon joylashuvi va radiusni kiritgan bo'lsa — hudud, aks holda None (tekshiruv yo'q)."""
+    try:
+        lat, lon = float(settings.get("shop_lat") or ""), float(settings.get("shop_lon") or "")
+        radius = float(settings.get("delivery_radius_km") or "")
+    except ValueError:
+        return None
+    if radius <= 0 or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    return DeliveryZone(lat, lon, radius)

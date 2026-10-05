@@ -14,9 +14,7 @@ from aiogram.types import (
 
 from bot import access
 from bot.config import Config
-from bot.db import Database
-from bot.handlers import admin, user
-from bot.seed import seed
+from bot.handlers import admin, banners, orders, user
 
 ADMIN_ID, CLIENT_ID, GROUP_ID = 10, 20, -1001
 
@@ -57,17 +55,17 @@ def _dispatcher() -> Dispatcher:
     if _DP is None:
         _DP = Dispatcher(storage=MemoryStorage())
         _DP.include_router(admin.router)
+        _DP.include_router(banners.router)
+        _DP.include_router(orders.router)
         _DP.include_router(user.router)
     return _DP
 
 
 @pytest.fixture
-async def env(tmp_path):
+async def env(tmp_path, fresh_db):
     cfg = Config(bot_token="42:TEST", base_url="https://example.com", mode="polling", host="", port=0,
                  data_dir=tmp_path, superadmins=frozenset())
-    db = Database(":memory:")
-    await db.connect()
-    await seed(db)
+    db = fresh_db
     session = FakeSession()
     bot = Bot("42:TEST", session=session, default=DefaultBotProperties(parse_mode="HTML"))
     dp = _dispatcher()
@@ -75,7 +73,6 @@ async def env(tmp_path):
     dp.fsm.storage = MemoryStorage()
     access.forget()
     yield bot, dp, db, session
-    await db.close()
 
 
 _uid = iter(range(1, 10_000))
@@ -88,8 +85,9 @@ def msg(text: str, user_id: int, chat_id: int | None = None, chat_type: str = "p
     return Update(update_id=next(_uid), message=m)
 
 
-def cb(data: str, user_id: int) -> Update:
-    m = Message(message_id=1, date=datetime.now(), chat=Chat(id=user_id, type="private"), text="x")
+def cb(data: str, user_id: int, chat_id: int | None = None) -> Update:
+    chat = Chat(id=chat_id, type="supergroup") if chat_id else Chat(id=user_id, type="private")
+    m = Message(message_id=1, date=datetime.now(), chat=chat, text="x")
     q = CallbackQuery(id=str(next(_uid)), from_user=User(id=user_id, is_bot=False, first_name="Ali"),
                       chat_instance="c", data=data, message=m)
     return Update(update_id=next(_uid), callback_query=q)
@@ -153,6 +151,137 @@ async def test_add_product(env):
     await dp.feed_update(bot, cb(f"a:addc:{cat['id']}", ADMIN_ID))
     await dp.feed_update(bot, msg("Tovuq lavash", ADMIN_ID))
     await dp.feed_update(bot, msg("38", ADMIN_ID))
-    await dp.feed_update(bot, msg("-", ADMIN_ID))
     p = next(p for p in await db.products(cat["id"]) if p["name_uz"] == "Tovuq lavash")
     assert p["price"] == 38000 and p["price_large"] is None
+
+
+async def test_admin_orders_list(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    await db.create_order(user_id=CLIENT_ID, kind="pickup", name="Ali", phone="+998901234567", payment="cash",
+                          items=[{"id": 1, "name": "Fri", "size": "", "qty": 2, "price": 15000, "sum": 30000}],
+                          total=30000)
+    await dp.feed_update(bot, cb("a:orders", ADMIN_ID))
+    from aiogram.methods import EditMessageText
+    text = next(c.text for c in reversed(session.calls) if isinstance(c, EditMessageText))
+    assert "№1001" in text and "Bugun: <b>1</b> ta · 30 000" in text and "Fri ×2" in text
+
+
+async def _new_order(db):
+    await db.upsert_user(CLIENT_ID, "Ali")
+    await db.set_user_lang(CLIENT_ID, "ru")
+    return await db.create_order(
+        user_id=CLIENT_ID, kind="pickup", name="Ali", phone="+998901234567", payment="cash",
+        items=[{"id": 1, "name": "Fri", "size": "", "qty": 1, "price": 15000, "sum": 15000}], total=15000)
+
+
+async def test_order_accept_from_group(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    oid = await _new_order(db)
+    await dp.feed_update(bot, cb(f"o:acc:{oid}", CLIENT_ID + 5, GROUP_ID))
+    order = await db.order(oid)
+    assert order["status"] == "accepted" and order["status_by"] == "Ali"
+    from aiogram.methods import EditMessageText
+    edit = next(c for c in reversed(session.calls) if isinstance(c, EditMessageText))
+    assert "QABUL QILINDI" in edit.text and edit.reply_markup.inline_keyboard[0][0].callback_data == f"o:rej:{oid}"
+    assert any("принят" in t for t in session.texts())  # mijozga o'z tilida
+
+    # Ikkinchi marta bosilsa — holat o'zgarmaydi, mijozga qayta xabar bormaydi
+    n = len(session.texts())
+    await dp.feed_update(bot, cb(f"o:acc:{oid}", CLIENT_ID + 6, GROUP_ID))
+    assert len(session.texts()) == n
+
+
+async def test_order_cancel_needs_confirmation(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    oid = await _new_order(db)
+    await dp.feed_update(bot, cb(f"o:rej:{oid}", CLIENT_ID + 5, GROUP_ID))
+    assert (await db.order(oid))["status"] == "new"  # hali tasdiqlanmagan
+    await dp.feed_update(bot, cb(f"o:rejy:{oid}", CLIENT_ID + 5, GROUP_ID))
+    assert (await db.order(oid))["status"] == "canceled"
+    assert any("отменён" in t and "+998 95 289 85 55" in t for t in session.texts())
+
+
+async def test_order_buttons_only_in_staff_group(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    oid = await _new_order(db)
+    await dp.feed_update(bot, cb(f"o:acc:{oid}", CLIENT_ID, -999))
+    assert (await db.order(oid))["status"] == "new"
+
+
+async def test_banner_admin_flow(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    assert len(await db.banners()) == 3
+    await dp.feed_update(bot, cb("b:new", ADMIN_ID))
+    new = (await db.banners())[-1]
+    assert new["is_active"] == 0
+    await dp.feed_update(bot, cb(f"b:f:title:{new['id']}", ADMIN_ID))
+    await dp.feed_update(bot, msg("Ikkinchi lavash -20% | Иккинчи лаваш -20% | Второй лаваш -20%", ADMIN_ID))
+    await dp.feed_update(bot, cb(f"b:t:{new['id']}", ADMIN_ID))
+    await dp.feed_update(bot, cb(f"b:th:{new['id']}", ADMIN_ID))
+    await dp.feed_update(bot, cb(f"b:up:{new['id']}", ADMIN_ID))
+    b = await db.banner(new["id"])
+    assert b["title_ru"] == "Второй лаваш -20%" and b["is_active"] == 1 and b["theme"] == "red"
+    assert [x["id"] for x in await db.banners()][2] == new["id"]  # bir pog'ona yuqoriga
+
+    # Oddiy foydalanuvchi banner tugmalarini bosolmaydi, lekin til tugmasi ishlayveradi
+    await dp.feed_update(bot, cb(f"b:t:{new['id']}", CLIENT_ID))
+    assert (await db.banner(new["id"]))["is_active"] == 1
+    await dp.feed_update(bot, cb("lang:ru", CLIENT_ID))
+    assert (await db.user(CLIENT_ID))["lang"] == "ru"
+
+
+def contact_msg(user_id: int, owner_id: int, phone: str) -> Update:
+    from aiogram.types import Contact
+
+    m = Message(message_id=next(_uid), date=datetime.now(), chat=Chat(id=user_id, type="private"),
+                from_user=User(id=user_id, is_bot=False, first_name="Ali"),
+                contact=Contact(phone_number=phone, first_name="Ali", user_id=owner_id))
+    return Update(update_id=next(_uid), message=m)
+
+
+async def test_shared_contact_is_saved_as_verified_phone(env):
+    bot, dp, db, session = env
+    await dp.feed_update(bot, contact_msg(CLIENT_ID, CLIENT_ID, "998901112233"))
+    assert (await db.user(CLIENT_ID))["verified_phone"] == "+998901112233"
+    # Boshqa odamning kontakti hisobga olinmaydi
+    await dp.feed_update(bot, contact_msg(CLIENT_ID, 12345, "998909999999"))
+    assert (await db.user(CLIENT_ID))["verified_phone"] == "+998901112233"
+
+
+async def test_customer_cancel_from_bot(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    oid = await _new_order(db)
+    await dp.feed_update(bot, msg("📦 Мои заказы", CLIENT_ID))
+    from aiogram.methods import SendMessage
+    last = next(c for c in reversed(session.calls) if isinstance(c, SendMessage) and c.chat_id == CLIENT_ID)
+    assert last.reply_markup.inline_keyboard[0][0].callback_data == f"c:can:{oid}"
+    await dp.feed_update(bot, cb(f"c:yes:{oid}", CLIENT_ID))
+    assert (await db.order(oid))["status"] == "canceled"
+    # Qabul qilingan buyurtmani bekor qilib bo'lmaydi
+    oid2 = await _new_order(db)
+    await db.set_order_status(oid2, "accepted", "Oshpaz")
+    await dp.feed_update(bot, cb(f"c:yes:{oid2}", CLIENT_ID))
+    assert (await db.order(oid2))["status"] == "accepted"
+
+
+async def test_admin_delivery_zone(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    from aiogram.types import Location
+    await dp.feed_update(bot, cb("a:zone:loc", ADMIN_ID))
+    m = Message(message_id=next(_uid), date=datetime.now(), chat=Chat(id=ADMIN_ID, type="private"),
+                from_user=User(id=ADMIN_ID, is_bot=False, first_name="A"),
+                location=Location(latitude=40.123456, longitude=64.654321))
+    await dp.feed_update(bot, Update(update_id=next(_uid), message=m))
+    await dp.feed_update(bot, cb("a:zone:r", ADMIN_ID))
+    await dp.feed_update(bot, msg("2,5", ADMIN_ID))
+    s = await db.all_settings()
+    assert (s["shop_lat"], s["shop_lon"], s["delivery_radius_km"]) == ("40.123456", "64.654321", "2.5")
+    await dp.feed_update(bot, cb("a:zone:off", ADMIN_ID))
+    assert await db.get_setting("delivery_radius_km") == ""

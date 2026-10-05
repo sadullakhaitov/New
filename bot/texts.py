@@ -65,12 +65,22 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "📞 {phone}\n📍 {address}\n🕒 Ежедневно, 24/7\n🚚 Доставка бесплатно — {zone}, от {min} сум",
     },
     "order_confirm": {
-        "uz": "✅ <b>Buyurtmangiz qabul qilindi!</b> №{id}\n\n{lines}\n\n<b>Jami: {total} so'm</b>\n{kind}\n{payment}\n\n"
-              "Tez orada siz bilan bog'lanamiz. Yoqimli ishtaha! 😋",
-        "cyr": "✅ <b>Буюртмангиз қабул қилинди!</b> №{id}\n\n{lines}\n\n<b>Жами: {total} сўм</b>\n{kind}\n{payment}\n\n"
-               "Тез орада сиз билан боғланамиз. Ёқимли иштаҳа! 😋",
-        "ru": "✅ <b>Ваш заказ принят!</b> №{id}\n\n{lines}\n\n<b>Итого: {total} сум</b>\n{kind}\n{payment}\n\n"
-              "Скоро мы с вами свяжемся. Приятного аппетита! 😋",
+        "uz": "📨 <b>Buyurtmangiz yuborildi!</b> №{id}\n\n{lines}\n\n<b>Jami: {total} so'm</b>\n{kind}\n{payment}\n\n"
+              "Xodimlarimiz tasdiqlashi bilan shu yerga xabar keladi.",
+        "cyr": "📨 <b>Буюртмангиз юборилди!</b> №{id}\n\n{lines}\n\n<b>Жами: {total} сўм</b>\n{kind}\n{payment}\n\n"
+               "Ходимларимиз тасдиқлаши билан шу ерга хабар келади.",
+        "ru": "📨 <b>Ваш заказ отправлен!</b> №{id}\n\n{lines}\n\n<b>Итого: {total} сум</b>\n{kind}\n{payment}\n\n"
+              "Как только сотрудники подтвердят заказ, здесь придёт сообщение.",
+    },
+    "order_accepted": {
+        "uz": "✅ <b>Buyurtmangiz №{id} qabul qilindi!</b>\nTayyorlashni boshladik. Yoqimli ishtaha! 😋",
+        "cyr": "✅ <b>Буюртмангиз №{id} қабул қилинди!</b>\nТайёрлашни бошладик. Ёқимли иштаҳа! 😋",
+        "ru": "✅ <b>Ваш заказ №{id} принят!</b>\nУже готовим. Приятного аппетита! 😋",
+    },
+    "order_canceled": {
+        "uz": "❌ <b>Buyurtmangiz №{id} bekor qilindi.</b>\nSavollar bo'lsa, qo'ng'iroq qiling: {phone}",
+        "cyr": "❌ <b>Буюртмангиз №{id} бекор қилинди.</b>\nСаволлар бўлса, қўнғироқ қилинг: {phone}",
+        "ru": "❌ <b>Ваш заказ №{id} отменён.</b>\nЕсли есть вопросы, позвоните: {phone}",
     },
     "kind_delivery": {
         "uz": "🚚 Yetkazib berish (bepul)",
@@ -100,6 +110,29 @@ TEXTS: dict[str, dict[str, str]] = {
         "uz": "Avval buyurtma bering, so'ng chekni yuboring 🙂",
         "cyr": "Аввал буюртма беринг, сўнг чекни юборинг 🙂",
         "ru": "Сначала оформите заказ, затем отправьте чек 🙂",
+    },
+    "phone_saved": {
+        "uz": "✅ Raqamingiz saqlandi: {phone}",
+        "cyr": "✅ Рақамингиз сақланди: {phone}",
+        "ru": "✅ Номер сохранён: {phone}",
+    },
+    "btn_cancel_order": {"uz": "❌ №{id} ni bekor qilish", "cyr": "❌ №{id} ни бекор қилиш", "ru": "❌ Отменить №{id}"},
+    "cancel_q": {
+        "uz": "Buyurtma №{id} bekor qilinsinmi?",
+        "cyr": "Буюртма №{id} бекор қилинсинми?",
+        "ru": "Отменить заказ №{id}?",
+    },
+    "cancel_yes": {"uz": "Ha, bekor qilinsin", "cyr": "Ҳа, бекор қилинсин", "ru": "Да, отменить"},
+    "cancel_no": {"uz": "Yo'q", "cyr": "Йўқ", "ru": "Нет"},
+    "canceled_by_you": {
+        "uz": "❌ Buyurtma №{id} bekor qilindi.",
+        "cyr": "❌ Буюртма №{id} бекор қилинди.",
+        "ru": "❌ Заказ №{id} отменён.",
+    },
+    "cannot_cancel": {
+        "uz": "Buyurtma №{id} allaqachon qabul qilingan, endi bekor qilib bo'lmaydi. Savollar bo'lsa: {phone}",
+        "cyr": "Буюртма №{id} аллақачон қабул қилинган, энди бекор қилиб бўлмайди. Саволлар бўлса: {phone}",
+        "ru": "Заказ №{id} уже принят, отменить его нельзя. Если есть вопросы: {phone}",
     },
     "size_small": {"uz": "kichik", "cyr": "кичик", "ru": "маленький"},
     "size_large": {"uz": "katta", "cyr": "катта", "ru": "большой"},
