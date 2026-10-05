@@ -165,7 +165,7 @@
     plus: '+', minus: '−', 'trash-can': '×', xmark: '×', check: '✓', 'circle-check': '✓', 'chevron-left': '‹',
     'arrow-right': '→', receipt: '≡', globe: '◍', 'rotate-right': '↻', copy: '⧉', moon: '☾', fire: '★',
     'location-dot': '•', sun: '☀',  'location-crosshairs': '◎', 'paper-plane': '➤', spinner: '…', 'person-walking': '',
-    'truck-fast': '', phone: '☎', clock: '◷', store: '⌂',
+    'truck-fast': '', phone: '☎', clock: '◷', store: '⌂', handshake: '',
   };
   const icon = (name, extra) => '<i class="fa-solid fa-' + name + (extra ? ' ' + extra : '') + '" data-fb="' +
     (ICON_FALLBACK[name] || '') + '" aria-hidden="true"></i>';
@@ -410,7 +410,8 @@
 
     html += '<div class="stack"><span class="label">' + T('payment') + '</span>' +
       payBtn('cash', 'money-bill-wave', T('cash'), T('cash_sub')) +
-      payBtn('card', 'credit-card', T('card'), T('card_sub')) + '</div>';
+      payBtn('card', 'credit-card', T('card'), T('card_sub')) +
+      payBtn('later', 'handshake', T('later'), T('later_sub')) + '</div>';
     html += '<label class="field">' + T('comment') + '<input class="input" data-field="comment" maxlength="300" value="' + esc(f.comment) + '" placeholder="' + T('comment_ph') + '"></label>';
     html += '<div class="summary"><div class="row"><span>' + T('items_n', { n: cartCount() }) + '</span><b>' + money(total) + '</b></div>' +
       minInfo(total) + '</div>';
@@ -493,11 +494,12 @@
     const o = state.lastOrder;
     let html = '<div class="success"><div class="check"><div>' + icon('check') + '</div></div>' +
       '<h1 class="display">' + T('order_ok') + '</h1><p>' + T('order_no') + ' <b>№ ' + o.id + '</b> · ' + T('order_ok_sub') + '</p></div>';
-    if (o.payment === 'card' && state.shop.card_number) {
-      html += '<div class="card-pay"><div class="head"><span>' + T('pay_by_card') + '</span><b>' + money(o.total) + '</b></div>' +
+    if ((o.payment === 'card' || o.payment === 'later') && state.shop.card_number) {
+      const later = o.payment === 'later';
+      html += '<div class="card-pay"><div class="head"><span>' + T(later ? 'pay_later_head' : 'pay_by_card') + '</span><b>' + money(o.total) + '</b></div>' +
         '<div class="card-num"><div><b>' + esc(state.shop.card_number) + '</b>' + (state.shop.card_owner ? '<span>' + esc(state.shop.card_owner) + '</span>' : '') + '</div>' +
         '<button class="copy-btn" data-action="copy">' + icon('copy') + ' ' + T('copy') + '</button></div>' +
-        '<span class="hint">' + T('send_receipt') + '</span></div>';
+        '<span class="hint">' + T(later ? 'later_hint' : 'send_receipt') + '</span></div>';
     }
     html += '<h2 class="display h2">' + T('my_orders') + '</h2>' + renderOrderList();
     html += '<div class="bottom-bar"><button class="cta" data-action="home">' + T('to_menu') + '</button></div>';

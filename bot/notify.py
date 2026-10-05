@@ -56,6 +56,9 @@ def group_order_text(order: dict[str, Any], username: str = "") -> str:
 
     if order["payment"] == "cash":
         parts.append("💵 To'lov: <b>naqd pul</b>")
+    elif order["payment"] == "later":
+        parts.append("🤝 To'lov: <b>buyurtmani olgandan keyin</b> (naqd yoki karta)"
+                     + (" — 🧾 chek ilova qilingan ✅" if order.get("receipt_file_id") else ""))
     elif order.get("receipt_file_id"):
         parts.append("💳 To'lov: <b>kartaga</b> — 🧾 chek ilova qilingan ✅")
     else:
@@ -114,9 +117,9 @@ def user_order_text(order: dict[str, Any], lang: str, settings: dict[str, str]) 
         kind = t("kind_delivery", lang)
     else:
         kind = t("kind_pickup", lang, address=escape(settings.get(f"address_{lang}") or settings.get("address_uz", "")))
-    if order["payment"] == "card":
+    if order["payment"] in ("card", "later"):
         owner = settings.get("card_owner", "").strip()
-        payment = t("pay_card", lang, card=escape(settings.get("card_number", "")),
+        payment = t("pay_" + order["payment"], lang, card=escape(settings.get("card_number", "")),
                     owner=f" ({escape(owner)})" if owner else "")
     else:
         payment = t("pay_cash", lang)

@@ -295,7 +295,7 @@ async def api_order(request: web.Request) -> web.Response:
 
     kind = body.get("kind")
     payment = body.get("payment")
-    if kind not in {"delivery", "pickup"} or payment not in {"cash", "card"}:
+    if kind not in {"delivery", "pickup"} or payment not in {"cash", "card", "later"}:
         return _error("bad_request")
 
     name = _text(body.get("name"), 64)

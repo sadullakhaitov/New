@@ -101,6 +101,14 @@ TEXTS: dict[str, dict[str, str]] = {
         "ru": "💳 Оплата: перевод на карту (Click / Payme)\nКарта: <code>{card}</code>{owner}\n"
               "📸 После оплаты отправьте фото чека в этот чат.",
     },
+    "pay_later": {
+        "uz": "🤝 To'lov: buyurtmani olgandan keyin — naqd yoki kartaga\nKarta: <code>{card}</code>{owner}\n"
+              "📸 Kartaga o'tkazsangiz, chek rasmini shu chatga yuboring.",
+        "cyr": "🤝 Тўлов: буюртмани олгандан кейин — нақд ёки картага\nКарта: <code>{card}</code>{owner}\n"
+               "📸 Картага ўтказсангиз, чек расмини шу чатга юборинг.",
+        "ru": "🤝 Оплата: после получения заказа — наличными или на карту\nКарта: <code>{card}</code>{owner}\n"
+              "📸 Если переводите на карту, отправьте фото чека в этот чат.",
+    },
     "receipt_ok": {
         "uz": "🧾 <b>Chek qabul qilindi!</b>\nU buyurtma №{id} bilan birga xodimlarga yuborildi. Rahmat!",
         "cyr": "🧾 <b>Чек қабул қилинди!</b>\nУ буюртма №{id} билан бирга ходимларга юборилди. Раҳмат!",
