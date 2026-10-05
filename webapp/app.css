@@ -75,8 +75,8 @@ img { display: block; }
 /* header */
 .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.logo { width: 46px; height: 46px; border-radius: 50%; background: var(--yellow); display: grid; place-items: center; box-shadow: 0 0 0 3px #3A2A00; flex-shrink: 0; overflow: hidden; }
-.logo img { width: 46px; height: 46px; }
+.logo { width: 50px; height: 50px; flex-shrink: 0; filter: drop-shadow(0 3px 8px rgba(0, 0, 0, .35)); }
+.logo img { width: 50px; height: 50px; object-fit: contain; }
 .brand-name { font-family: var(--display); font-size: 22px; letter-spacing: 1px; line-height: 1; }
 .brand-name span { color: var(--accent-text); }
 .brand-sub { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 3px; white-space: nowrap; }
@@ -242,6 +242,7 @@ img { display: block; }
 
 .empty { min-height: 60vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; color: var(--muted); font-weight: 600; }
 .empty img { width: 180px; height: 144px; opacity: .9; }
+.empty img.empty-logo { width: 140px; height: 140px; object-fit: contain; opacity: 1; }
 .empty h2 { margin: 0; color: var(--text); font-size: 28px; }
 
 /* forms */

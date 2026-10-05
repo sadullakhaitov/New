@@ -200,7 +200,7 @@
   function renderHome() {
     const shop = state.shop;
     const open = shop.open;
-    let html = '<header class="top"><div class="brand"><div class="logo"><img src="static/img/logo.svg" alt=""></div><div>' +
+    let html = '<header class="top"><div class="brand"><div class="logo"><img src="static/img/logo.webp" alt="Emir Food"></div><div>' +
       '<div class="brand-name">EMIR <span>FOOD</span></div><div class="brand-sub">' + icon('location-dot') + ' Peshku · ' +
       (open ? '<span class="is-open">' + T('open_247') + '</span>' : '<span class="is-closed">' + T('closed_short') + '</span>') +
       '</div></div></div><div class="top-actions">' +
@@ -946,7 +946,7 @@
     await loadMe();
     const ok = await loadMenu();
     if (!ok) {
-      app.innerHTML = '<div class="empty"><img src="static/img/logo.svg" alt=""><h2 class="display">' + T('err_network') +
+      app.innerHTML = '<div class="empty"><img class="empty-logo" src="static/img/logo.webp" alt="Emir Food"><h2 class="display">' + T('err_network') +
         '</h2><button class="cta" style="max-width:260px" onclick="location.reload()">' + T('retry') + '</button></div>';
       return;
     }
