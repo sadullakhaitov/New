@@ -158,3 +158,27 @@ async def seed_banners(db: Database) -> None:
             fields[f"{key}_uz"], fields[f"{key}_cyr"], fields[f"{key}_ru"] = b[key]
         await db.add_banner(**fields, img=b["img"], theme=b["theme"], product_id=by_name.get(b["product"]))
     await db.set_setting("banners_seeded", "1")
+
+
+# Haqiqiy taom suratlari (fon shaffof). Kichik va katta o'lchamga bir xil surat qo'yiladi.
+PHOTOS = {
+    "Lavash": "lavash",
+    "Tandir lavash": "lavash-tandir",
+    "Xagi (kichik)": "xagi", "Xagi (katta)": "xagi",
+    "Doner (kichik)": "doner", "Doner (katta)": "doner",
+    "Burger (kichik)": "burger", "Burger (katta)": "burger",
+}
+
+
+async def apply_photos(db: Database) -> int:
+    """Chizma rasmlarni suratlarga almashtiradi (bir marta). Admin yuklagan rasmlarga tegilmaydi."""
+    if await db.get_setting("migr_photos_v1") == "1":
+        return 0
+    count = 0
+    for p in await db.products():
+        photo = PHOTOS.get(p["name_uz"])
+        if photo and (not p["img"] or p["img"].startswith("static/img/")):
+            await db.update_product(p["id"], img=f"static/img/photos/{photo}.webp")
+            count += 1
+    await db.set_setting("migr_photos_v1", "1")
+    return count

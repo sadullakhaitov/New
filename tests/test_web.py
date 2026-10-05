@@ -177,3 +177,15 @@ async def test_menu_banners(ctx):
     await ctx.db.update_product(banners[1]["product_id"], is_active=0)
     data = await (await ctx.client.get("/api/menu?lang=ru")).json()
     assert len(data["banners"]) == 2 and data["banners"][1]["text"] == "Большой размер — 38 000 сум"
+
+
+async def test_photos_applied_to_both_sizes(ctx):
+    from bot.seed import apply_photos
+
+    products = {p["name_uz"]: p for p in await ctx.db.products()}
+    assert products["Burger (kichik)"]["img"] == products["Burger (katta)"]["img"] == "static/img/photos/burger.webp"
+    assert products["Doner (katta)"]["img"].endswith("doner.webp")
+    assert products["Chizburger (kichik)"]["img"] == "static/img/cheeseburger.svg"
+    for name in ("burger", "doner", "xagi", "lavash", "lavash-tandir"):
+        assert (await ctx.client.get(f"/static/img/photos/{name}.webp")).status == 200
+    assert await apply_photos(ctx.db) == 0  # qayta ishga tushganda tegmaydi

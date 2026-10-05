@@ -3,7 +3,7 @@ import os
 import pytest
 
 from bot.db import Database, asyncpg_dsn
-from bot.seed import seed, seed_banners, split_sizes
+from bot.seed import apply_photos, seed, seed_banners, split_sizes
 
 
 @pytest.fixture
@@ -24,5 +24,6 @@ async def fresh_db():
     await seed(db)
     await split_sizes(db)
     await seed_banners(db)
+    await apply_photos(db)
     yield db
     await db.close()
