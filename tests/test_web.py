@@ -185,7 +185,7 @@ async def test_sizes_split_into_separate_items(ctx):
     assert products["Xot-dog Klassika (katta)"]["price"] == 18000
     assert products["Burger (katta)"]["name_cyr"] == "Бургер (катта)"
     assert products["Go'shtli xot-dog"]["price"] == 25000  # bitta o'lchamli taom o'zgarmaydi
-    assert len(products) == 20 + 7
+    assert len(products) == 20 + 7 + 3  # + 3 ta sous
     assert await split_sizes(ctx.db) == 0  # qayta ishga tushganda hech narsa qilmaydi
 
 
@@ -346,3 +346,16 @@ async def test_pay_after_receiving(ctx):
     assert "olgandan keyin" in user_text and "1234 5678 8910 1112" in user_text
     bad = await (await ctx.client.post("/api/order", json=_fri_body(fri, payment="bitcoin"), headers=auth())).json()
     assert not bad.get("ok")
+
+
+async def test_sauces_section(ctx):
+    from bot.seed import add_sauces
+
+    data = await (await ctx.client.get("/api/menu?lang=ru")).json()
+    cats = [c["name"] for c in data["categories"]]
+    assert cats.index("Соусы") == cats.index("KFC и фри") + 1
+    sauces = next(c for c in data["categories"] if c["name"] == "Соусы")["products"]
+    assert [(p["name"], p["price"]) for p in sauces] == [
+        ("Чесночный соус", 6000), ("Томатный соус", 6000), ("Сырный соус", 6000)]
+    assert (await ctx.client.get("/static/img/sauce-garlic.svg")).status == 200
+    assert await add_sauces(ctx.db) == 0  # qayta ishga tushganda takrorlanmaydi

@@ -224,3 +224,32 @@ async def apply_banner_photos(db: Database) -> int:
             count += 1
     await db.set_setting("migr_banner_photos", "1")
     return count
+
+
+# Souslar — alohida bo'lim (KFC va fri bilan ichimliklar orasida). Bir marta qo'shiladi.
+SAUCE_CATEGORY = ("sauces", "Souslar", "Соуслар", "Соусы", "static/img/sauce-tomato.svg")
+SAUCES = [
+    # uz, cyr, ru, rasm, narx
+    ("Sarimsoqli sous", "Саримсоқли соус", "Чесночный соус", "sauce-garlic", 6000),
+    ("Tomatli sous", "Томатли соус", "Томатный соус", "sauce-tomato", 6000),
+    ("Pishloqli sous", "Пишлоқли соус", "Сырный соус", "sauce-cheese", 6000),
+]
+
+
+async def add_sauces(db: Database) -> int:
+    """Souslar bo'limini va 3 ta sousni qo'shadi (admin keyin o'chirsa — qaytib qo'shilmaydi)."""
+    if await db.get_setting("migr_sauces") == "1":
+        return 0
+    slug, uz, cyr, ru, img = SAUCE_CATEGORY
+    cat = next((c for c in await db.categories() if c["slug"] == slug), None)
+    cid = cat["id"] if cat else await db.add_category(slug=slug, name_uz=uz, name_cyr=cyr, name_ru=ru, img=img, sort=35)
+    have = {p["name_uz"] for p in await db.products()}
+    count = 0
+    for sort, (name_uz, name_cyr, name_ru, pic, price) in enumerate(SAUCES):
+        if name_uz in have:
+            continue
+        await db.add_product(category_id=cid, name_uz=name_uz, name_cyr=name_cyr, name_ru=name_ru,
+                             img=f"static/img/{pic}.svg", price=price, sort=sort * 10)
+        count += 1
+    await db.set_setting("migr_sauces", "1")
+    return count
