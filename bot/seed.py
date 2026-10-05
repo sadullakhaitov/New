@@ -172,6 +172,7 @@ PHOTOS = {
     "Qazi xot-dog (kichik)": "hotdog-qazi", "Qazi xot-dog (katta)": "hotdog-qazi",
     "Go'shtli xot-dog": "hotdog-meat",
     "Kolbaski xot-dog": "hotdog-kolbaski",
+    "Coca-Cola": "cola", "Fanta": "fanta", "Suv": "water",
 }
 
 
