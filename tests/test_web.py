@@ -187,7 +187,10 @@ async def test_photos_applied_to_both_sizes(ctx):
     assert products["Doner (katta)"]["img"].endswith("doner.webp")
     assert products["Chizburger (kichik)"]["img"] == "static/img/cheeseburger.svg"
     assert products["Arab kabob (katta)"]["img"] == "static/img/photos/arab-kabob.webp"
-    for name in ("burger", "doner", "xagi", "lavash", "lavash-tandir", "arab-kabob"):
+    assert products["Qazi xot-dog (kichik)"]["img"] == "static/img/photos/hotdog-qazi.webp"
+    assert products["Kolbaski xot-dog"]["img"] == "static/img/photos/hotdog-kolbaski.webp"
+    for name in ("burger", "doner", "xagi", "lavash", "lavash-tandir", "arab-kabob",
+                 "hotdog-classic", "hotdog-qazi", "hotdog-meat", "hotdog-kolbaski"):
         assert (await ctx.client.get(f"/static/img/photos/{name}.webp")).status == 200
     assert await apply_photos(ctx.db) == 0  # qayta ishga tushganda tegmaydi
 

@@ -168,6 +168,10 @@ PHOTOS = {
     "Doner (kichik)": "doner", "Doner (katta)": "doner",
     "Burger (kichik)": "burger", "Burger (katta)": "burger",
     "Arab kabob (kichik)": "arab-kabob", "Arab kabob (katta)": "arab-kabob",
+    "Xot-dog Klassika (kichik)": "hotdog-classic", "Xot-dog Klassika (katta)": "hotdog-classic",
+    "Qazi xot-dog (kichik)": "hotdog-qazi", "Qazi xot-dog (katta)": "hotdog-qazi",
+    "Go'shtli xot-dog": "hotdog-meat",
+    "Kolbaski xot-dog": "hotdog-kolbaski",
 }
 
 
