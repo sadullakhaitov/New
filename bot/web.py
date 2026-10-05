@@ -174,7 +174,7 @@ async def api_menu(request: web.Request) -> web.Response:
             "tag": localized(b, "tag", lang),
             "title": localized(b, "title", lang),
             "text": _fill(localized(b, "text", lang), fill),
-            "img": image_url(b, image_url(linked, "") if linked else "static/img/burger.svg", "b"),
+            "img": image_url(b, image_url(linked, "") if linked else "static/img/photos/burger.webp", "b"),
             "theme": b["theme"] if b["theme"] in BANNER_THEMES else "yellow",
             "product_id": linked["id"] if linked and is_available(linked) else None,
         })

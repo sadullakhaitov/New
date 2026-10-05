@@ -144,6 +144,28 @@ async def test_setgroup_and_admin_panel(env):
     assert await db.get_setting("card_number") == "8600 1234 1234 1234"
 
 
+async def test_admin_price_list(env):
+    bot, dp, db, session = env
+    await db.set_setting("group_chat_id", str(GROUP_ID))
+    from aiogram.methods import EditMessageText
+    await dp.feed_update(bot, cb("a:prices", ADMIN_ID))
+    edit = next(c for c in reversed(session.calls) if isinstance(c, EditMessageText))
+    buttons = [b.text for row in edit.reply_markup.inline_keyboard for b in row]
+    assert "Lavash — 40 000" in buttons and "Emir burger — narx yo'q ❗" in buttons
+    pid = next(p["id"] for p in await db.products() if p["name_uz"] == "Emir burger")
+    await dp.feed_update(bot, cb(f"a:pr:{pid}", ADMIN_ID))
+    assert "Emir burger" in session.texts()[-1]
+    await dp.feed_update(bot, msg("42", ADMIN_ID))
+    assert (await db.product(pid))["price"] == 42000
+    assert session.texts()[-1].startswith("✅ Emir burger — 42 000 so'm") and "Narxlar" in session.texts()[-1]
+
+    # Sozlamalar: minimal summa saqlangach sozlamalarga qaytadi
+    await dp.feed_update(bot, cb("a:set", ADMIN_ID))
+    await dp.feed_update(bot, cb("a:min", ADMIN_ID))
+    await dp.feed_update(bot, msg("60000", ADMIN_ID))
+    assert await db.get_setting("min_order") == "60000" and "Sozlamalar" in session.texts()[-1]
+
+
 async def test_add_product(env):
     bot, dp, db, session = env
     await db.set_setting("group_chat_id", str(GROUP_ID))
