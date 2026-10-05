@@ -15,7 +15,7 @@ from aiohttp import web
 from .config import load_config
 from .db import Database
 from .handlers import admin, banners, orders, user
-from .seed import apply_banner_photos, apply_photos, seed, seed_banners, split_sizes
+from .seed import add_sauces, apply_banner_photos, apply_photos, seed, seed_banners, split_sizes
 from .web import create_app
 
 log = logging.getLogger("emirfood")
@@ -57,6 +57,7 @@ async def main() -> None:
         log.info("%s ta taom kichik/katta bo'yicha ajratildi", split)
     await seed_banners(db)
     await apply_banner_photos(db)
+    await add_sauces(db)
     if (photos := await apply_photos(db)):
         log.info("%s ta taomga surat qo'yildi", photos)
 
