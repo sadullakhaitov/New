@@ -54,6 +54,17 @@ def price_text(p: dict) -> str:
     return f"{format_sum(p['price'])} so'm"
 
 
+def parse_names(text: str) -> dict[str, str]:
+    """«Lotin», «Lotin | Русский» yoki «Lotin | Кирилл | Русский»."""
+    parts = [x.strip() for x in text.split("|")]
+    if not parts[0] or len(parts[0]) > 60:
+        raise ValueError("nom")
+    if len(parts) == 2:
+        return {"name_uz": parts[0], "name_cyr": "", "name_ru": parts[1]}
+    return {"name_uz": parts[0], "name_cyr": parts[1] if len(parts) > 1 else "",
+            "name_ru": parts[2] if len(parts) > 2 else ""}
+
+
 async def _edit(call: CallbackQuery, text: str, markup: InlineKeyboardMarkup) -> None:
     try:
         await call.message.edit_text(text, reply_markup=markup)
@@ -97,28 +108,45 @@ async def _guard_message(message: Message, db: Database, cfg: Config, bot: Bot) 
     return True
 
 
+def _shop_line(closed_until: str) -> str:
+    status = shop_status(closed_until)
+    if status.is_open:
+        return "🟢 Do'kon ochiq"
+    return f"🔴 Do'kon yopiq ({status.until_text()} gacha)" if status.until else "🔴 Do'kon yopiq"
+
+
 async def main_panel(db: Database) -> tuple[str, InlineKeyboardMarkup]:
     s = await db.all_settings()
-    status = shop_status(s.get("closed_until", ""))
-    state = "🟢 Ochiq" if status.is_open else (
-        f"🔴 Yopiq ({status.until_text()} gacha)" if status.until else "🔴 Yopiq (noma'lum muddatga)"
-    )
-    group = "✅ ulangan" if s.get("group_chat_id") else "⚠️ ulanmagan — guruhda /setgroup yozing"
-    text = (
-        "🛠 <b>Emir Food — admin panel</b>\n\n"
-        f"Do'kon: {state}\n"
-        f"Buyurtmalar guruhi: {group}\n"
-        f"Karta: <code>{escape(s.get('card_number', ''))}</code>\n"
-        f"Minimal summa (yetkazish): {format_sum(int(s.get('min_order') or 0))} so'm"
-    )
+    is_open = shop_status(s.get("closed_until", "")).is_open
+    no_price = sum(1 for p in await db.products() if p["is_active"] and p["price"] is None)
+    lines = ["🛠 <b>Emir Food — admin panel</b>", "", _shop_line(s.get("closed_until", ""))]
+    if not s.get("group_chat_id"):
+        lines.append("⚠️ Buyurtmalar guruhi ulanmagan — guruhda /setgroup yozing")
+    if no_price:
+        lines.append(f"❗ {no_price} ta taomning narxi yo'q")
     markup = kb(
-        [("🍔 Menyu va narxlar", "a:menu"), ("➕ Taom qo'shish", "a:add")],
-        [("🔒 Do'kon holati", "a:shop"), ("💳 Karta", "a:card")],
-        [("📦 Buyurtmalar", "a:orders"), ("🖼 Bannerlar", "b:list")],
-        [("📍 Yetkazish hududi", "a:zone"), ("💰 Minimal summa", "a:min")],
-        [("💾 Zaxira nusxa", "a:backup")],
+        [("💰 Narxlar", "a:prices"), ("🍔 Taomlar", "a:menu")],
+        [("🔴 Do'konni yopish" if is_open else "🟢 Do'konni ochish", "a:shop"), ("📦 Buyurtmalar", "a:orders")],
+        [("🖼 Bannerlar", "b:list"), ("⚙️ Sozlamalar", "a:set")],
     )
-    return text, markup
+    return "\n".join(lines), markup
+
+
+async def settings_view(db: Database) -> tuple[str, InlineKeyboardMarkup]:
+    s = await db.all_settings()
+    zone = delivery_zone(s)
+    text = (
+        "⚙️ <b>Sozlamalar</b>\n\n"
+        f"💳 Karta: <code>{escape(s.get('card_number', ''))}</code>\n"
+        f"💰 Yetkazish uchun minimal summa: {format_sum(int(s.get('min_order') or 0))} so'm\n"
+        f"📍 Yetkazish hududi: {f'{zone.radius_km:g} km' if zone else 'cheklanmagan'}\n"
+        f"👥 Buyurtmalar guruhi: {'ulangan ✅' if s.get('group_chat_id') else 'ulanmagan ⚠️'}"
+    )
+    return text, kb(
+        [("💳 Karta", "a:card"), ("💰 Minimal summa", "a:min")],
+        [("📍 Yetkazish hududi", "a:zone"), ("💾 Zaxira nusxa", "a:backup")],
+        [("⬅️ Orqaga", BACK_MAIN)],
+    )
 
 
 @router.message(Command("admin"))
@@ -171,12 +199,60 @@ async def cb_cancel(call: CallbackQuery, db: Database, state: FSMContext) -> Non
     await call.answer("Bekor qilindi")
 
 
+@admin_calls.callback_query(F.data == "a:set")
+async def cb_settings(call: CallbackQuery, db: Database, state: FSMContext) -> None:
+    await state.clear()
+    await _edit(call, *await settings_view(db))
+    await call.answer()
+
+
+# ---------- narxlar: bitta ro'yxat, bosing va yozing ----------
+async def prices_view(db: Database) -> tuple[str, InlineKeyboardMarkup]:
+    rows = []
+    for c in await db.categories():
+        for p in await db.products(c["id"]):
+            price = format_sum(p["price"]) if p["price"] is not None else "narx yo'q ❗"
+            hidden = " 🙈" if not p["is_active"] else ""
+            rows.append([(f"{p['name_uz']} — {price}{hidden}", f"a:pr:{p['id']}")])
+    rows.append([("⬅️ Orqaga", BACK_MAIN)])
+    text = "💰 <b>Narxlar</b>\n\nTaomni bosing va yangi narxni yozing."
+    return text, kb(*rows)
+
+
+@admin_calls.callback_query(F.data == "a:prices")
+async def cb_prices(call: CallbackQuery, db: Database, state: FSMContext) -> None:
+    await state.clear()
+    await _edit(call, *await prices_view(db))
+    await call.answer()
+
+
+def _price_prompt(p: dict) -> str:
+    return (f"💰 <b>{escape(p['name_uz'])}</b>\nHozir: {price_text(p)}\n\n"
+            "Yangi narxni yozing. Masalan: <code>35000</code> yoki qisqa <code>35</code>\n"
+            "Narxni olib tashlash: <code>-</code>")
+
+
+@admin_calls.callback_query(F.data.regexp(r"^a:(pr|pp):\d+$"))
+async def cb_ask_price(call: CallbackQuery, db: Database, state: FSMContext) -> None:
+    _, kind, pid = call.data.split(":")
+    p = await db.product(int(pid))
+    if p is None:
+        await call.answer("Taom topilmadi", show_alert=True)
+        return
+    await state.set_state(Input.value)
+    # a:pr — narxlar ro'yxatidan, a:pp — taom kartasidan; saqlangach o'sha joyga qaytiladi
+    await state.update_data(action="pp", pid=p["id"], back="prices" if kind == "pr" else "product")
+    await call.message.answer(_price_prompt(p), reply_markup=CANCEL_KB)
+    await call.answer()
+
+
 # ---------- menyu ----------
 @admin_calls.callback_query(F.data == "a:menu")
 async def cb_menu(call: CallbackQuery, db: Database) -> None:
     rows = [[(f"{c['name_uz']}", f"a:cat:{c['id']}")] for c in await db.categories()]
+    rows.append([("➕ Yangi taom qo'shish", "a:add")])
     rows.append([("⬅️ Orqaga", BACK_MAIN)])
-    await _edit(call, "🍔 <b>Bo'limni tanlang</b>", kb(*rows))
+    await _edit(call, "🍔 <b>Taomlar</b>\n\nBo'limni tanlang.", kb(*rows))
     await call.answer()
 
 
@@ -188,10 +264,11 @@ async def category_view(db: Database, cid: int) -> tuple[str, InlineKeyboardMark
         mark = "⛔" if not p["is_active"] else ("🕓" if p["price"] is None else "✅")
         price = format_sum(p["price"]) if p["price"] is not None else "—"
         rows.append([(f"{mark} {p['name_uz']} · {price}", f"a:p:{p['id']}")])
-    rows.append([("➕ Shu bo'limga taom qo'shish", f"a:addc:{cid}")])
+    rows.append([("➕ Yangi taom qo'shish", f"a:addc:{cid}")])
     rows.append([("⬅️ Bo'limlar", "a:menu")])
     text = (f"📂 <b>{escape(cat['name_uz'] if cat else '')}</b>\n\n"
-            "✅ sotuvda · 🕓 narx kiritilmagan · ⛔ yashirilgan")
+            "Taomni bosing: narx, rasm, nom yoki yashirish.\n"
+            "✅ sotuvda · 🕓 narxi yo'q · ⛔ yashirilgan")
     return text, kb(*rows)
 
 
@@ -206,20 +283,20 @@ async def product_view(db: Database, pid: int) -> tuple[str, InlineKeyboardMarku
     p = await db.product(pid)
     if p is None:
         return None
-    status = "ko'rinadi" if p["is_active"] else "yashirilgan"
+    names = escape(p['name_cyr'] or latin_to_cyrillic(p['name_uz']))
+    if p["name_ru"]:
+        names += " · " + escape(p["name_ru"])
     text = (
-        f"🍽 <b>{escape(p['name_uz'])}</b>\n"
-        f"Kirill: {escape(p['name_cyr'] or latin_to_cyrillic(p['name_uz']))}\n"
-        f"Rus: {escape(p['name_ru'] or '—')}\n\n"
+        f"🍽 <b>{escape(p['name_uz'])}</b>\n<i>{names}</i>\n\n"
         f"💰 {price_text(p)}\n"
-        f"👁 Menyuda: {status}\n"
-        f"⭐ Hit: {'ha' if p['is_hit'] else 'yo‘q'}"
+        f"{'👁 Menyuda ko‘rinadi' if p['is_active'] else '🙈 Menyuda yashirilgan'}"
+        f"{' · ⭐ Hit' if p['is_hit'] else ''}"
     )
+    price = format_sum(p["price"]) if p["price"] is not None else "yo'q"
     markup = kb(
-        [("💰 Narx", f"a:pp:{pid}"), ("✏️ Nomi", f"a:pn:{pid}"), ("🖼 Rasm", f"a:pi:{pid}")],
-        [("🙈 Yashirish" if p["is_active"] else "👁 Ko'rsatish", f"a:pt:{pid}"),
-         ("⭐ Hitni olib tashlash" if p["is_hit"] else "⭐ Hit qilish", f"a:ph:{pid}")],
-        [("🗑 O'chirish", f"a:pd:{pid}")],
+        [(f"💰 Narx: {price}", f"a:pp:{pid}"), ("🖼 Rasm", f"a:pi:{pid}")],
+        [("✏️ Nom", f"a:pn:{pid}"), ("🙈 Yashirish" if p["is_active"] else "👁 Ko'rsatish", f"a:pt:{pid}")],
+        [("⭐ Hit: ha" if p["is_hit"] else "⭐ Hit: yo'q", f"a:ph:{pid}"), ("🗑 O'chirish", f"a:pd:{pid}")],
         [("⬅️ Orqaga", f"a:cat:{p['category_id']}")],
     )
     return text, markup
@@ -283,21 +360,18 @@ async def cb_delete(call: CallbackQuery, db: Database) -> None:
 
 # ---------- matn kiritish ----------
 PROMPTS = {
-    "pp": "💰 Yangi narxni yozing (so'mda).\nMasalan: <code>35000</code> yoki <code>35</code>.\n"
-          "<code>-</code> — narxni olib tashlash (menyuda «Tez orada» bo'ladi).",
-    "pn": "✏️ Yangi nomni yozing (lotinda).\nKirill avtomatik yoziladi.\n"
-          "Uch tilda yozish uchun: <code>Lotin | Кирилл | Русский</code>",
-    "card": "💳 Yangi karta raqamini yozing (16 xonali).",
-    "owner": "👤 Karta egasining ism-familiyasini yozing.\n<code>-</code> — ko'rsatmaslik.",
-    "min": "💰 Yetkazib berish uchun minimal summani yozing (so'mda).\n<code>0</code> — cheklov yo'q.",
-    "radius": "📏 Yetkazish radiusini kilometrda yozing (do'kondan to'g'ri chiziq bo'yicha).\n"
-              "Masalan: <code>3</code> yoki <code>2.5</code>",
-    "close": "🕐 Qachongacha yopiq bo'lishini yozing.\nMasalan: <code>10:00</code>, "
-             "<code>07.10 09:00</code> yoki <code>07.10.2026 09:00</code>",
+    "pp": "💰 Yangi narxni yozing. Masalan: <code>35000</code> yoki <code>35</code>",
+    "pn": "✏️ Yangi nomni yozing. Masalan: <code>Tovuq lavash</code>\n"
+          "<i>Kirillchasi o'zi yoziladi. Ruschasini ham qo'shish: <code>Tovuq lavash | Лаваш с курицей</code></i>",
+    "card": "💳 Karta raqamini yozing (16 ta raqam).",
+    "owner": "👤 Karta egasining ismini yozing. Ko'rsatmaslik: <code>-</code>",
+    "min": "💰 Yetkazish uchun minimal summani yozing. Masalan: <code>50000</code>\nCheklovsiz: <code>0</code>",
+    "radius": "📏 Necha km gacha yetkazasiz? Masalan: <code>3</code> yoki <code>2.5</code>",
+    "close": "🕐 Qachongacha yopiq? Masalan: <code>10:00</code> yoki <code>07.10 09:00</code>",
 }
 
 
-@admin_calls.callback_query(F.data.regexp(r"^a:(pp|pn):\d+$"))
+@admin_calls.callback_query(F.data.regexp(r"^a:pn:\d+$"))
 async def cb_ask_product_field(call: CallbackQuery, state: FSMContext) -> None:
     _, action, pid = call.data.split(":")
     await state.set_state(Input.value)
@@ -327,12 +401,7 @@ async def on_value(message: Message, state: FSMContext, db: Database, cfg: Confi
         if action == "pp":
             await db.update_product(pid, price=parse_price(text))
         elif action == "pn":
-            parts = [x.strip() for x in text.split("|")]
-            if not parts[0] or len(parts[0]) > 60:
-                raise ValueError("nom")
-            fields = {"name_uz": parts[0], "name_cyr": parts[1] if len(parts) > 1 else "",
-                      "name_ru": parts[2] if len(parts) > 2 else ""}
-            await db.update_product(pid, **fields)
+            await db.update_product(pid, **parse_names(text))
         elif action == "card":
             digits = "".join(ch for ch in text if ch.isdigit())
             if len(digits) != 16:
@@ -360,8 +429,17 @@ async def on_value(message: Message, state: FSMContext, db: Database, cfg: Confi
         return
 
     await state.clear()
+    if action == "pp" and data.get("back") == "prices":
+        p = await db.product(pid)
+        text_, markup = await prices_view(db)
+        await message.answer(f"✅ {escape(p['name_uz'])} — {price_text(p)}\n\n" + text_, reply_markup=markup)
+        return
     if action == "radius":
         text_, markup = await zone_view(db)
+        await message.answer("✅ Saqlandi.\n\n" + text_, reply_markup=markup)
+        return
+    if action in ("card", "owner", "min"):
+        text_, markup = await settings_view(db)
         await message.answer("✅ Saqlandi.\n\n" + text_, reply_markup=markup)
         return
     if pid is not None:
@@ -398,8 +476,8 @@ async def on_not_photo(message: Message) -> None:
 @admin_calls.callback_query(F.data == "a:add")
 async def cb_add(call: CallbackQuery, db: Database) -> None:
     rows = [[(c["name_uz"], f"a:addc:{c['id']}")] for c in await db.categories()]
-    rows.append([("⬅️ Orqaga", BACK_MAIN)])
-    await _edit(call, "➕ Yangi taom qaysi bo'limga qo'shilsin?", kb(*rows))
+    rows.append([("⬅️ Orqaga", "a:menu")])
+    await _edit(call, "➕ Yangi taom qaysi bo'limga?", kb(*rows))
     await call.answer()
 
 
@@ -407,12 +485,8 @@ async def cb_add(call: CallbackQuery, db: Database) -> None:
 async def cb_add_category(call: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AddProduct.name)
     await state.update_data(cid=int(call.data.split(":")[2]))
-    await call.message.answer(
-        "✏️ Taom nomini yozing (lotinda). Masalan: <code>Tovuq lavash (katta)</code>\n"
-        "Kichik va katta o'lcham — alohida taom sifatida qo'shiladi.\n"
-        "Uch tilda: <code>Tovuq lavash | Товуқ лаваш | Лаваш с курицей</code>",
-        reply_markup=CANCEL_KB,
-    )
+    await call.message.answer("✏️ Yangi taom nomini yozing. Masalan: <code>Tovuq lavash (katta)</code>",
+                              reply_markup=CANCEL_KB)
     await call.answer()
 
 
@@ -421,15 +495,15 @@ async def add_name(message: Message, state: FSMContext, db: Database, cfg: Confi
     if not await _guard_message(message, db, cfg, bot):
         await state.clear()
         return
-    parts = [x.strip() for x in message.text.split("|")]
-    if not parts[0] or len(parts[0]) > 60:
+    try:
+        names = parse_names(message.text)
+    except ValueError:
         await message.answer("❗ Nom 1–60 belgi bo'lsin. Qaytadan yozing.", reply_markup=CANCEL_KB)
         return
-    await state.update_data(name_uz=parts[0], name_cyr=parts[1] if len(parts) > 1 else "",
-                            name_ru=parts[2] if len(parts) > 2 else "")
+    await state.update_data(**names)
     await state.set_state(AddProduct.price)
-    await message.answer("💰 Narxini yozing.\nMasalan: <code>35000</code>. "
-                         "<code>-</code> — keyinroq kiritaman.", reply_markup=CANCEL_KB)
+    await message.answer("💰 Narxini yozing. Masalan: <code>35000</code> yoki <code>35</code>\n"
+                         "Keyinroq kiritaman: <code>-</code>", reply_markup=CANCEL_KB)
 
 
 @router.message(AddProduct.price, F.text)
@@ -468,21 +542,18 @@ def _tomorrow(hour: int) -> datetime:
 async def cb_shop(call: CallbackQuery, db: Database) -> None:
     status = shop_status(await db.get_setting("closed_until"))
     if status.is_open:
-        head = "🟢 Do'kon hozir <b>ochiq</b>, buyurtmalar qabul qilinmoqda."
-    elif status.until:
-        head = f"🔴 Do'kon <b>{status.until_text()}</b> gacha yopiq."
+        t8 = _tomorrow(8)
+        text = ("🟢 Do'kon hozir <b>ochiq</b>.\n\nQachongacha yopamiz?\n"
+                "<i>Yopiq paytda mijozlar menyuni ko'radi, lekin buyurtma bera olmaydi.</i>")
+        rows = [
+            [(f"🌙 Ertaga {t8:%d.%m} 08:00 gacha", "a:cl:8")],
+            [("🕐 Boshqa vaqtgacha", "a:cl:custom"), ("⛔ Men ochgunimcha", "a:cl:forever")],
+        ]
     else:
-        head = "🔴 Do'kon noma'lum muddatga yopiq."
-    t8, t10 = _tomorrow(8), _tomorrow(10)
-    rows = [
-        [(f"🌙 Ertagacha ({t8:%d.%m} 08:00)", "a:cl:8"), (f"🌙 Ertagacha ({t10:%d.%m} 10:00)", "a:cl:10")],
-        [("🕐 Sana va soatni yozish", "a:cl:custom")],
-        [("⛔ Noma'lum muddatga yopish", "a:cl:forever")],
-    ]
-    if not status.is_open:
-        rows.insert(0, [("🟢 Hozir ochish", "a:open")])
+        text = _shop_line(await db.get_setting("closed_until")) + ".\n\nBuyurtmalar qabul qilinmayapti."
+        rows = [[("🟢 Hozir ochish", "a:open")]]
     rows.append([("⬅️ Orqaga", BACK_MAIN)])
-    await _edit(call, head + "\n\nYopiq paytda mijozlar menyuni ko'radi, lekin buyurtma bera olmaydi.", kb(*rows))
+    await _edit(call, text, kb(*rows))
     await call.answer()
 
 
@@ -526,7 +597,7 @@ async def zone_view(db: Database) -> tuple[str, InlineKeyboardMarkup]:
     rows = [[("📍 Do'kon joylashuvi", "a:zone:loc"), ("📏 Radius", "a:zone:r")]]
     if has_loc or radius:
         rows.append([("🚫 Tekshiruvni o'chirish", "a:zone:off")])
-    rows.append([("⬅️ Orqaga", BACK_MAIN)])
+    rows.append([("⬅️ Orqaga", "a:set")])
     return text, kb(*rows)
 
 
@@ -630,7 +701,7 @@ async def cb_card(call: CallbackQuery, db: Database) -> None:
     await _edit(call, f"💳 Karta: <code>{escape(s.get('card_number', ''))}</code>\n👤 Egasi: {escape(owner)}\n\n"
                       "Mijoz «Kartaga o'tkazma» tanlasa, shu ma'lumot ko'rsatiladi.",
                 kb([("✏️ Karta raqami", "a:in:card"), ("✏️ Karta egasi", "a:in:owner")],
-                   [("⬅️ Orqaga", BACK_MAIN)]))
+                   [("⬅️ Orqaga", "a:set")]))
     await call.answer()
 
 

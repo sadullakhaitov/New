@@ -130,13 +130,13 @@ BANNERS = [
         "tag": ("DOIMIY TAKLIF", "ДОИМИЙ ТАКЛИФ", "ВСЕГДА"),
         "title": ("Bepul yetkazib berish", "Бепул етказиб бериш", "Бесплатная доставка"),
         "text": ("{min} so'mdan · Peshku markazi bo'ylab", "{min} сўмдан · Пешку маркази бўйлаб", "От {min} сум · по центру Пешку"),
-        "img": "static/img/burger.svg", "theme": "yellow", "product": None,
+        "img": "static/img/photos/burger.webp", "theme": "yellow", "product": None,
     },
     {
         "tag": ("HIT", "HIT", "ХИТ"),
         "title": ("Emir lavash", "Эмир лаваш", "Эмир лаваш"),
         "text": ("{price} · bir bosishda savatga", "{price} · бир босишда саватга", "{price} · в корзину в одно касание"),
-        "img": "", "theme": "red", "product": "Emir lavash",
+        "img": "static/img/photos/lavash.webp", "theme": "red", "product": "Emir lavash",
     },
     {
         "tag": ("KATTA PORSIYA", "КАТТА ПОРЦИЯ", "БОЛЬШАЯ ПОРЦИЯ"),
@@ -198,4 +198,29 @@ async def apply_photos(db: Database) -> int:
             await db.update_product(p["id"], img=f"static/img/photos/{photo}.webp")
             count += 1
     await db.set_setting("photos_applied", ",".join(sorted(done | set(todo.values()))))
+    return count
+
+
+async def apply_banner_photos(db: Database) -> int:
+    """Bannerlardagi chizma burger va lavashni haqiqiy suratlarga almashtiradi (bir marta).
+
+    Admin yuklagan rasmlarga tegilmaydi.
+    """
+    if await db.get_setting("migr_banner_photos") == "1":
+        return 0
+    count = 0
+    for b in await db.banners():
+        img = b["img"] or ""
+        photo = None
+        if img == "static/img/burger.svg":
+            photo = "burger"
+        elif not img and b["product_id"]:
+            p = await db.product(b["product_id"])
+            name = (p["name_uz"] if p else "").lower()
+            if p and (not p["img"] or not p["img"].startswith(("tg:", "static/img/photos/"))):
+                photo = "lavash" if "lavash" in name else "burger" if "burger" in name else None
+        if photo:
+            await db.update_banner(b["id"], img=f"static/img/photos/{photo}.webp")
+            count += 1
+    await db.set_setting("migr_banner_photos", "1")
     return count

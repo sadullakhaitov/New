@@ -106,7 +106,7 @@ async def cb_new(call: CallbackQuery, db: Database) -> None:
         await call.answer(f"Ko'pi bilan {MAX_BANNERS} ta banner", show_alert=True)
         return
     bid = await db.add_banner(tag_uz="YANGI", title_uz="Yangi banner", text_uz="Matnni o'zgartiring",
-                              img="static/img/burger.svg", theme="yellow", is_active=0)
+                              img="static/img/photos/burger.webp", theme="yellow", is_active=0)
     await _show(call, db, bid, "✅ Banner yaratildi (hozircha yashirilgan). Matnini yozib, «Ko'rsatish» ni bosing.\n\n")
 
 
@@ -244,7 +244,7 @@ async def cb_reset_photo(call: CallbackQuery, db: Database, state: FSMContext) -
     bid = _bid(call)
     b = await db.banner(bid)
     if b:
-        await db.update_banner(bid, img="" if b["product_id"] else "static/img/burger.svg")
+        await db.update_banner(bid, img="" if b["product_id"] else "static/img/photos/burger.webp")
     await _show(call, db, bid, "✅ Saqlandi.\n\n")
 
 

@@ -182,6 +182,8 @@ async def test_menu_banners(ctx):
     assert [b["theme"] for b in banners] == ["yellow", "red", "dark"]
     assert banners[0]["text"].startswith("50 000 so'm")
     assert banners[1]["text"].startswith("50 000 so'm") and banners[1]["product_id"]
+    assert banners[0]["img"] == "static/img/photos/burger.webp"
+    assert banners[1]["img"] == "static/img/photos/lavash.webp"
     assert banners[2]["img"] == "static/img/photos/hotdog-qazi.webp"
     # Ulangan taom yashirilsa — banner ham chiqmaydi
     await ctx.db.update_product(banners[1]["product_id"], is_active=0)
@@ -219,6 +221,23 @@ async def test_new_photo_applied_after_old_migration(fresh_db):
     assert await apply_photos(db) == 17  # arab kabob, chizburger, xot-doglar, ichimliklar, longer, klab sendvich, kfc, fri
     assert (await db.product(pid))["img"] == "static/img/photos/arab-kabob2.webp"
     assert await apply_photos(db) == 0
+
+
+async def test_banner_photos_migration(fresh_db):
+    from bot.seed import apply_banner_photos
+
+    db = fresh_db
+    yellow, red, dark = await db.banners()
+    # Eski holat: chizma burger va bo'sh (taom chizmasiga qaytadigan) lavash
+    await db.update_banner(yellow["id"], img="static/img/burger.svg")
+    await db.update_banner(red["id"], img="")
+    await db.update_banner(dark["id"], img="tg:admin-file")
+    await db.set_setting("migr_banner_photos", "")
+    assert await apply_banner_photos(db) == 2
+    assert (await db.banner(yellow["id"]))["img"] == "static/img/photos/burger.webp"
+    assert (await db.banner(red["id"]))["img"] == "static/img/photos/lavash.webp"
+    assert (await db.banner(dark["id"]))["img"] == "tg:admin-file"
+    assert await apply_banner_photos(db) == 0
 
 
 def _fri_body(db_fri, **extra):
